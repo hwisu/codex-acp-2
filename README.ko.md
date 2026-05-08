@@ -81,8 +81,23 @@ ACP 클라이언트는 `codex-acp`를 stdio agent로 실행해야 합니다. 다
 - 로컬 release 빌드: `./target/release/codex-acp`
 - 현재 OS/CPU용 게시 바이너리
 
-Zed 수동 점검은
-[`docs/zed-computer-use-check.md`](docs/zed-computer-use-check.md)를 참고하세요.
+클라이언트 수동 점검은
+[`docs/zed-computer-use-check.md`](docs/zed-computer-use-check.md)와
+[`docs/toad-compatibility-check.md`](docs/toad-compatibility-check.md)를 참고하세요.
+
+### Toad
+
+Toad에서 이 fork를 테스트하려면 ACP agent 명령을 이 저장소의 바이너리로
+추가하거나 수정하세요. 예: `./target/debug/codex-acp`,
+`npx @hwisu/codex-acp`, 또는 검증하려는 게시 바이너리. Toad의 기본 Codex store
+항목은 현재 이 fork가 아니라 upstream package를 실행합니다.
+
+`OPENAI_API_KEY` 또는 `CODEX_API_KEY`를 사용할 때는 Toad 프로세스 환경에
+설정하세요. 이 어댑터는 해당 key를 현재 프로세스의 in-memory Codex auth에만
+seed하며 auth file이나 keychain entry를 쓰지 않습니다.
+
+Toad smoke test 절차는
+[`docs/toad-compatibility-check.md`](docs/toad-compatibility-check.md)를 참고하세요.
 
 ## 저장소 구조
 

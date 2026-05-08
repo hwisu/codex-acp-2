@@ -1523,6 +1523,7 @@ version = "0.13.1"
 dependencies = [
  "agent-client-protocol",
  "anyhow",
+ "base64",
  "clap",
  "codex-apply-patch",
  "codex-arg0",

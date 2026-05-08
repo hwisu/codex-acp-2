@@ -24,7 +24,7 @@ use super::{
 
 impl<A: Auth> ThreadActor<A> {
     pub(super) fn prompt_request_text(prompt: Vec<ContentBlock>) -> String {
-        build_prompt_items(prompt)
+        build_prompt_items(prompt, None)
             .into_iter()
             .filter_map(|item| match item {
                 UserInput::Text { text, .. } => Some(text),
@@ -104,7 +104,10 @@ impl<A: Auth> ThreadActor<A> {
         let (response_tx, response_rx) = oneshot::channel();
 
         let op = match self
-            .prompt_submission_for_items(build_prompt_items(request.prompt))
+            .prompt_submission_for_items(build_prompt_items(
+                request.prompt,
+                Some(self.config.cwd.as_path()),
+            ))
             .await?
         {
             PromptSubmission::Submit { op } => op,

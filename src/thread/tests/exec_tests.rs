@@ -38,6 +38,10 @@ fn zed_client_info() -> Implementation {
     Implementation::new("zed", "0.0.0").title("Zed")
 }
 
+fn toad_client_info() -> Implementation {
+    Implementation::new("toad", "0.0.0").title("Toad")
+}
+
 fn terminal_active_command() -> ActiveCommand {
     ActiveCommand {
         tool_call_id: ToolCallId::new("call-id"),
@@ -233,6 +237,18 @@ fn test_terminal_output_support_recovers_poisoned_client_info() {
         SessionClient::with_client(session_id, client, client_capabilities, client_info);
 
     assert!(session_client.supports_terminal_output(&terminal_active_command()));
+}
+
+#[test]
+fn test_toad_client_without_terminal_meta_uses_content_snapshots() {
+    let session_id = SessionId::new("test");
+    let client = Arc::new(StubClient::new());
+    let client_capabilities = Arc::new(std::sync::Mutex::new(ClientCapabilities::new()));
+    let client_info = Arc::new(std::sync::Mutex::new(Some(toad_client_info())));
+    let session_client =
+        SessionClient::with_client(session_id, client, client_capabilities, client_info);
+
+    assert!(!session_client.supports_terminal_output(&terminal_active_command()));
 }
 
 #[test]

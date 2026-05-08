@@ -317,12 +317,46 @@ fn build_mcp_server_config(
     Ok((normalize_mcp_server_name(&name), config))
 }
 
+fn select_env_api_key_for_ephemeral_auth(
+    codex_api_key: Option<String>,
+    openai_api_key: Option<String>,
+) -> Option<String> {
+    codex_api_key.or(openai_api_key)
+}
+
+fn seed_ephemeral_api_key_auth(
+    codex_home: &Path,
+    api_key: Option<String>,
+) -> std::io::Result<bool> {
+    let Some(api_key) = api_key else {
+        return Ok(false);
+    };
+
+    codex_login::login_with_api_key(
+        codex_home,
+        &api_key,
+        codex_login::AuthCredentialsStoreMode::Ephemeral,
+    )?;
+    Ok(true)
+}
+
+fn seed_ephemeral_api_key_auth_from_env(codex_home: &Path) -> std::io::Result<bool> {
+    seed_ephemeral_api_key_auth(
+        codex_home,
+        select_env_api_key_for_ephemeral_auth(
+            read_codex_api_key_from_env(),
+            read_openai_api_key_from_env(),
+        ),
+    )
+}
+
 impl CodexAgent {
     /// Create a new `CodexAgent` with the given configuration
     pub async fn new(
         config: Config,
         codex_linux_sandbox_exe: Option<PathBuf>,
     ) -> std::io::Result<Self> {
+        seed_ephemeral_api_key_auth_from_env(&config.codex_home)?;
         let auth_manager = AuthManager::shared(
             config.codex_home.to_path_buf(),
             false,
@@ -1038,6 +1072,89 @@ mod tests {
         }));
         std::panic::set_hook(previous_hook);
         assert!(result.is_err());
+    }
+
+    fn temp_codex_home() -> PathBuf {
+        std::env::temp_dir().join(format!("codex-acp-auth-{}", uuid::Uuid::new_v4()))
+    }
+
+    #[test]
+    fn ephemeral_env_auth_selection_prefers_codex_api_key() {
+        assert_eq!(
+            select_env_api_key_for_ephemeral_auth(
+                Some("codex-key".to_string()),
+                Some("openai-key".to_string())
+            ),
+            Some("codex-key".to_string())
+        );
+        assert_eq!(
+            select_env_api_key_for_ephemeral_auth(None, Some("openai-key".to_string())),
+            Some("openai-key".to_string())
+        );
+        assert_eq!(select_env_api_key_for_ephemeral_auth(None, None), None);
+    }
+
+    #[tokio::test]
+    async fn seed_ephemeral_api_key_auth_does_not_write_auth_json() -> anyhow::Result<()> {
+        let codex_home = temp_codex_home();
+        let auth_file = codex_home.join("auth.json");
+
+        assert!(seed_ephemeral_api_key_auth(
+            &codex_home,
+            Some("sk-ephemeral".to_string())
+        )?);
+
+        let auth_manager = AuthManager::shared(
+            codex_home.clone(),
+            false,
+            codex_login::AuthCredentialsStoreMode::File,
+            None,
+        )
+        .await;
+        let auth = auth_manager
+            .auth()
+            .await
+            .expect("ephemeral auth should load");
+
+        assert_eq!(auth.api_key(), Some("sk-ephemeral"));
+        assert!(!auth_file.exists());
+
+        drop(codex_login::logout(
+            &codex_home,
+            codex_login::AuthCredentialsStoreMode::Ephemeral,
+        ));
+        drop(std::fs::remove_dir_all(&codex_home));
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn missing_ephemeral_api_key_preserves_existing_storage_auth() -> anyhow::Result<()> {
+        let codex_home = temp_codex_home();
+        codex_login::login_with_api_key(
+            &codex_home,
+            "sk-stored",
+            codex_login::AuthCredentialsStoreMode::File,
+        )?;
+
+        assert!(!seed_ephemeral_api_key_auth(&codex_home, None)?);
+
+        let auth_manager = AuthManager::shared(
+            codex_home.clone(),
+            false,
+            codex_login::AuthCredentialsStoreMode::File,
+            None,
+        )
+        .await;
+        let auth = auth_manager.auth().await.expect("stored auth should load");
+
+        assert_eq!(auth.api_key(), Some("sk-stored"));
+
+        drop(codex_login::logout(
+            &codex_home,
+            codex_login::AuthCredentialsStoreMode::File,
+        ));
+        drop(std::fs::remove_dir_all(&codex_home));
+        Ok(())
     }
 
     #[test]

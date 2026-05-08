@@ -81,8 +81,24 @@ ACP clients should launch `codex-acp` as a stdio agent. Use one of:
 - `./target/release/codex-acp` for a local release build
 - a published binary for the current OS and CPU
 
-For Zed manual checks, see
-[`docs/zed-computer-use-check.md`](docs/zed-computer-use-check.md).
+For manual client checks, see
+[`docs/zed-computer-use-check.md`](docs/zed-computer-use-check.md) and
+[`docs/toad-compatibility-check.md`](docs/toad-compatibility-check.md).
+
+### Toad
+
+To test this fork with Toad, add or edit an ACP agent command that points at
+this repository's binary, such as `./target/debug/codex-acp`,
+`npx @hwisu/codex-acp`, or the published binary you want to verify. Toad's
+built-in Codex store entry currently launches the upstream package, not this
+fork.
+
+When using `OPENAI_API_KEY` or `CODEX_API_KEY`, set it in the environment of
+the Toad process. This adapter seeds that key into in-memory Codex auth for the
+current process only; it does not write an auth file or keychain entry.
+
+For a Toad smoke-test routine, see
+[`docs/toad-compatibility-check.md`](docs/toad-compatibility-check.md).
 
 ## Repository Layout
 
