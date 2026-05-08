@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, path::PathBuf};
 
 use agent_client_protocol::Error;
 use agent_client_protocol::schema::{
@@ -40,6 +40,7 @@ pub(crate) struct ActiveCommandSeed {
     pub(crate) kind: ToolKind,
     pub(crate) terminal_output: bool,
     pub(crate) file_extension: Option<String>,
+    pub(crate) cwd: PathBuf,
 }
 
 pub(crate) struct PatchApprovalInteraction {
@@ -108,6 +109,7 @@ pub(crate) fn exec_approval_interaction(
             kind,
             terminal_output,
             file_extension,
+            cwd: cwd.to_path_buf(),
         },
         permission_request: PermissionRequestSeed::new(
             ToolCallUpdate::new(

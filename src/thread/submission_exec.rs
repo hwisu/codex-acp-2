@@ -34,6 +34,7 @@ impl PromptState {
             kind,
             terminal_output,
             file_extension,
+            cwd,
         } = active_command;
         self.insert_active_command(
             call_id.clone(),
@@ -44,6 +45,7 @@ impl PromptState {
                 tool_call_id,
                 output: String::new(),
                 file_extension,
+                cwd,
             },
         );
 

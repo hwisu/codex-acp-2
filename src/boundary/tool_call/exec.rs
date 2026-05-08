@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use agent_client_protocol::schema::{
     Meta, Terminal, ToolCall, ToolCallContent, ToolCallId, ToolCallStatus, ToolCallUpdate,
@@ -9,6 +9,7 @@ use codex_protocol::protocol::{ExecCommandBeginEvent, ExecCommandEndEvent, ExecC
 use crate::{
     boundary::{compat, effect::BridgeEffect, raw},
     display::tool_call_text_content,
+    file_changes::extract_tool_call_content_from_command_output_diff,
     permission::{ParseCommandToolCall, parse_command_tool_call},
 };
 
@@ -19,6 +20,7 @@ pub(crate) struct ActiveCommand {
     pub(crate) terminal_output: bool,
     pub(crate) output: String,
     pub(crate) file_extension: Option<String>,
+    pub(crate) cwd: PathBuf,
 }
 
 pub(crate) struct ExecCommandBeginPlan {
@@ -84,6 +86,11 @@ impl ActiveCommand {
     }
 
     pub(crate) fn render_output_content(&self, output: &str) -> Vec<ToolCallContent> {
+        if let Some(content) = extract_tool_call_content_from_command_output_diff(&self.cwd, output)
+        {
+            return content;
+        }
+
         let content = match self.file_extension.as_deref() {
             Some(ext) => format!(
                 "```{}\n{}\n```\n",
@@ -260,6 +267,7 @@ pub(crate) fn exec_command_begin_plan(
         kind,
         output: String::new(),
         file_extension,
+        cwd: cwd.to_path_buf(),
         terminal_output,
     };
     let supports_terminal_output = supports_terminal_output(&active_command);

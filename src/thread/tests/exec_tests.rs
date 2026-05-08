@@ -46,6 +46,7 @@ fn terminal_active_command() -> ActiveCommand {
         terminal_output: true,
         output: String::new(),
         file_extension: None,
+        cwd: std::env::current_dir().expect("current dir should be available"),
     }
 }
 
@@ -57,6 +58,7 @@ fn rendered_output_text_for_extension(extension: Option<&str>) -> String {
         terminal_output: false,
         output: String::new(),
         file_extension: extension.map(str::to_string),
+        cwd: std::env::current_dir().expect("current dir should be available"),
     };
 
     match command.render_output_content("body\n").into_iter().next() {
@@ -66,6 +68,20 @@ fn rendered_output_text_for_extension(extension: Option<&str>) -> String {
         })) => text,
         content => panic!("expected text content, got {content:?}"),
     }
+}
+
+fn rendered_output_content(output: &str, cwd: PathBuf) -> Vec<ToolCallContent> {
+    let command = ActiveCommand {
+        tool_call_id: ToolCallId::new("call-id"),
+        title: "git diff".to_string(),
+        kind: ToolKind::Other,
+        terminal_output: true,
+        output: String::new(),
+        file_extension: None,
+        cwd,
+    };
+
+    command.render_output_content(output)
 }
 
 #[test]
@@ -119,6 +135,37 @@ fn test_read_output_uses_canonical_fence_languages() {
         rendered_output_text_for_extension(None),
         "```sh\nbody\n```\n"
     );
+}
+
+#[test]
+fn test_unified_diff_output_uses_diff_content() -> anyhow::Result<()> {
+    let cwd = std::env::temp_dir()
+        .join("codex-acp-exec-diff-tests")
+        .join(uuid::Uuid::new_v4().to_string());
+    let path = cwd.join("src/lib.rs");
+    std::fs::create_dir_all(path.parent().unwrap())?;
+    std::fs::write(&path, "fn main() { println!(\"hi\"); }\n")?;
+    let output = "\
+diff --git a/src/lib.rs b/src/lib.rs
+index 1111111..2222222 100644
+--- a/src/lib.rs
++++ b/src/lib.rs
+@@ -1 +1 @@
+-fn main(){println!(\"hi\");}
++fn main() { println!(\"hi\"); }
+";
+
+    let content = rendered_output_content(output, cwd);
+
+    assert!(matches!(
+        content.first(),
+        Some(ToolCallContent::Diff(diff))
+            if diff.path == path
+                && diff.old_text.as_deref() == Some("fn main(){println!(\"hi\");}\n")
+                && diff.new_text == "fn main() { println!(\"hi\"); }\n"
+    ));
+
+    Ok(())
 }
 
 #[tokio::test]
@@ -220,6 +267,31 @@ fn test_search_and_listfiles_commands_use_terminal_output() -> anyhow::Result<()
         &cwd,
     );
     assert!(!read.terminal_output);
+
+    Ok(())
+}
+
+#[test]
+fn test_unknown_rust_file_reads_are_rendered_as_read_content() -> anyhow::Result<()> {
+    let cwd = std::env::current_dir()?;
+
+    let read = parse_command_tool_call(
+        vec![ParsedCommand::Unknown {
+            cmd: "rtk sed -n '1,120p' src/lib.rs".to_string(),
+        }],
+        &cwd,
+    );
+
+    assert!(!read.terminal_output);
+    assert!(matches!(read.kind, ToolKind::Read));
+    assert_eq!(read.file_extension.as_deref(), Some("rs"));
+    assert_eq!(read.title, "Read lib.rs");
+    assert_eq!(read.locations.len(), 1);
+
+    assert_eq!(
+        rendered_output_text_for_extension(read.file_extension.as_deref()),
+        "```rust\nbody\n```\n"
+    );
 
     Ok(())
 }

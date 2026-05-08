@@ -2,6 +2,7 @@ use std::path::{Path, PathBuf};
 
 use agent_client_protocol::schema::{Diff, ToolCallContent, ToolCallLocation};
 use codex_protocol::protocol::FileChange;
+use diffy::patch_set::{FileOperation, ParseOptions, PatchKind, PatchSet};
 use itertools::Itertools;
 
 use crate::display::tool_call_text_content;
@@ -46,6 +47,133 @@ pub(crate) fn extract_tool_call_content_from_changes(
     });
 
     (title, locations, content)
+}
+
+pub(crate) fn extract_tool_call_content_from_command_output_diff(
+    cwd: &Path,
+    output: &str,
+) -> Option<Vec<ToolCallContent>> {
+    extract_tool_call_content_from_git_diff(cwd, output)
+        .or_else(|| extract_tool_call_content_from_rustfmt_diff(cwd, output))
+}
+
+fn extract_tool_call_content_from_git_diff(
+    cwd: &Path,
+    output: &str,
+) -> Option<Vec<ToolCallContent>> {
+    if !output.lines().any(|line| line.starts_with("diff --git ")) {
+        return None;
+    }
+
+    let patches = PatchSet::parse(output, ParseOptions::gitdiff())
+        .collect::<Result<Vec<_>, _>>()
+        .ok()?;
+    let content = patches
+        .iter()
+        .map(|patch| diff_content_from_file_patch(cwd, patch).map(ToolCallContent::Diff))
+        .collect::<Option<Vec<_>>>()?;
+
+    (!content.is_empty()).then_some(content)
+}
+
+fn diff_content_from_file_patch(
+    cwd: &Path,
+    file_patch: &diffy::patch_set::FilePatch<'_, str>,
+) -> Option<Diff> {
+    let PatchKind::Text(patch) = file_patch.patch() else {
+        return None;
+    };
+    let operation = file_patch.operation().strip_prefix(1);
+
+    match operation {
+        FileOperation::Create(path) => {
+            let path = resolve_command_diff_path(cwd, path.as_ref());
+            let new_text = diffy::apply("", patch).ok()?;
+            Some(Diff::new(path, new_text))
+        }
+        FileOperation::Delete(path) => {
+            let path = resolve_command_diff_path(cwd, path.as_ref());
+            let old_text = std::fs::read_to_string(&path)
+                .ok()
+                .or_else(|| diffy::apply("", &patch.reverse()).ok())?;
+            Some(Diff::new(path, String::new()).old_text(old_text))
+        }
+        FileOperation::Modify { modified, .. } | FileOperation::Rename { to: modified, .. } => {
+            let path = resolve_command_diff_path(cwd, modified.as_ref());
+            let new_text = std::fs::read_to_string(&path).ok()?;
+            let old_text = diffy::apply(&new_text, &patch.reverse()).ok()?;
+            Some(Diff::new(path, new_text).old_text(old_text))
+        }
+        FileOperation::Copy { .. } => None,
+    }
+}
+
+fn extract_tool_call_content_from_rustfmt_diff(
+    cwd: &Path,
+    output: &str,
+) -> Option<Vec<ToolCallContent>> {
+    let sections = rustfmt_diff_sections(output);
+    if sections.is_empty() {
+        return None;
+    }
+
+    let content = sections
+        .into_iter()
+        .map(|(path, patch_text)| {
+            let path = resolve_command_diff_path(cwd, path);
+            let old_text = std::fs::read_to_string(&path).ok()?;
+            let patch = diffy::Patch::from_str(&patch_text).ok()?;
+            let new_text = diffy::apply(&old_text, &patch).ok()?;
+            Some(ToolCallContent::Diff(
+                Diff::new(path, new_text).old_text(old_text),
+            ))
+        })
+        .collect::<Option<Vec<_>>>()?;
+
+    (!content.is_empty()).then_some(content)
+}
+
+fn rustfmt_diff_sections(output: &str) -> Vec<(PathBuf, String)> {
+    let mut sections = Vec::new();
+    let mut current: Option<(PathBuf, String)> = None;
+
+    for line in output.lines() {
+        if let Some(path) = rustfmt_diff_path_from_header(line) {
+            if let Some((path, patch_text)) = current.take()
+                && !patch_text.trim().is_empty()
+            {
+                sections.push((path, patch_text));
+            }
+            current = Some((path, String::new()));
+        } else if let Some((_, patch_text)) = current.as_mut() {
+            patch_text.push_str(line);
+            patch_text.push('\n');
+        }
+    }
+
+    if let Some((path, patch_text)) = current
+        && !patch_text.trim().is_empty()
+    {
+        sections.push((path, patch_text));
+    }
+
+    sections
+}
+
+fn rustfmt_diff_path_from_header(line: &str) -> Option<PathBuf> {
+    let rest = line.strip_prefix("Diff in ")?.strip_suffix(':')?;
+    let (path, line_number) = rest.rsplit_once(':')?;
+    line_number.parse::<usize>().ok()?;
+    Some(PathBuf::from(path))
+}
+
+fn resolve_command_diff_path(cwd: &Path, path: impl AsRef<Path>) -> PathBuf {
+    let path = path.as_ref();
+    if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        cwd.join(path)
+    }
 }
 
 fn tool_call_location_for_change(path: &Path, change: &FileChange) -> PathBuf {
@@ -178,6 +306,62 @@ mod tests {
         assert_eq!(diff.path, path);
         assert_eq!(diff.old_text.as_deref(), Some("foo\nbar\nbaz\nqux\n"));
         assert_eq!(diff.new_text, "foo\nBAR\nbaz\nQUX\n");
+    }
+
+    #[test]
+    fn git_diff_command_output_uses_diff_content() {
+        let cwd = temp_path("git-diff-root");
+        let path = cwd.join("src/lib.rs");
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(&path, "fn main() { println!(\"hi\"); }\n").unwrap();
+        let output = "\
+diff --git a/src/lib.rs b/src/lib.rs
+index 1111111..2222222 100644
+--- a/src/lib.rs
++++ b/src/lib.rs
+@@ -1 +1 @@
+-fn main(){println!(\"hi\");}
++fn main() { println!(\"hi\"); }
+";
+
+        let content =
+            extract_tool_call_content_from_command_output_diff(&cwd, output).expect("diff content");
+        let diff = first_diff(content);
+
+        assert_eq!(diff.path, path);
+        assert_eq!(
+            diff.old_text.as_deref(),
+            Some("fn main(){println!(\"hi\");}\n")
+        );
+        assert_eq!(diff.new_text, "fn main() { println!(\"hi\"); }\n");
+    }
+
+    #[test]
+    fn rustfmt_command_output_uses_diff_content() {
+        let cwd = temp_path("rustfmt-root");
+        let path = cwd.join("src/main.rs");
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(&path, "fn main(){println!(\"hi\");}\n").unwrap();
+        let output = format!(
+            "\
+Diff in {}:1:
+@@ -1 +1 @@
+-fn main(){{println!(\"hi\");}}
++fn main() {{ println!(\"hi\"); }}
+",
+            path.display()
+        );
+
+        let content = extract_tool_call_content_from_command_output_diff(&cwd, &output)
+            .expect("diff content");
+        let diff = first_diff(content);
+
+        assert_eq!(diff.path, path);
+        assert_eq!(
+            diff.old_text.as_deref(),
+            Some("fn main(){println!(\"hi\");}\n")
+        );
+        assert_eq!(diff.new_text, "fn main() { println!(\"hi\"); }\n");
     }
 
     #[test]

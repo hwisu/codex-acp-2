@@ -929,6 +929,7 @@ async fn test_ps_command_reports_active_background_tool_calls() -> anyhow::Resul
             terminal_output: true,
             output: String::new(),
             file_extension: None,
+            cwd: std::env::current_dir()?,
         },
     );
     actor.insert_submission(

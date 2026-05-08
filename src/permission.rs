@@ -181,8 +181,19 @@ pub(crate) fn parse_command_tool_call(
                 kind = ToolKind::Search;
             }
             ParsedCommand::Unknown { cmd } => {
-                titles.push(cmd);
-                terminal_output = true;
+                if let Some(path) = rust_file_read_path_from_unknown_command(&cmd) {
+                    let name = path
+                        .file_name()
+                        .and_then(|name| name.to_str())
+                        .map_or_else(|| path.display().to_string(), ToOwned::to_owned);
+                    titles.push(format!("Read {name}"));
+                    file_extension = Some("rs".to_string());
+                    cmd_path = Some(path);
+                    kind = ToolKind::Read;
+                } else {
+                    titles.push(cmd);
+                    terminal_output = true;
+                }
             }
         }
 
@@ -202,4 +213,57 @@ pub(crate) fn parse_command_tool_call(
         locations,
         kind,
     }
+}
+
+fn rust_file_read_path_from_unknown_command(cmd: &str) -> Option<PathBuf> {
+    let argv = shlex::split(cmd)
+        .unwrap_or_else(|| cmd.split_whitespace().map(ToOwned::to_owned).collect());
+    let argv = strip_known_command_wrappers(&argv);
+    let program = argv
+        .first()
+        .and_then(|program| Path::new(program).file_name())
+        .and_then(|program| program.to_str())?;
+
+    if !is_file_read_program(program) {
+        return None;
+    }
+
+    argv.iter().skip(1).rev().find_map(|arg| {
+        if arg == "--" || arg.starts_with('-') {
+            return None;
+        }
+
+        let path = PathBuf::from(arg);
+        path.extension()
+            .and_then(|ext| ext.to_str())
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("rs"))
+            .then_some(path)
+    })
+}
+
+fn strip_known_command_wrappers(argv: &[String]) -> &[String] {
+    let mut argv = argv;
+    loop {
+        let Some(program) = argv
+            .first()
+            .and_then(|program| Path::new(program).file_name())
+            .and_then(|program| program.to_str())
+        else {
+            return argv;
+        };
+
+        match program {
+            "rtk" if argv.get(1).is_some_and(|arg| arg == "proxy") => argv = &argv[2..],
+            "rtk" | "command" => argv = &argv[1..],
+            _ if program.contains('=') && !program.contains('/') => argv = &argv[1..],
+            _ => return argv,
+        }
+    }
+}
+
+fn is_file_read_program(program: &str) -> bool {
+    matches!(
+        program,
+        "bat" | "cat" | "head" | "less" | "more" | "nl" | "sed" | "tail"
+    )
 }
