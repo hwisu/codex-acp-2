@@ -5,8 +5,8 @@ edition = "2024"
 authors = ["Zed <hi@zed.dev>"]
 license = "Apache-2.0"
 description = "An ACP-compatible coding agent powered by Codex"
-repository = "https://github.com/hwisu/codex-acp"
-homepage = "https://github.com/hwisu/codex-acp"
+repository = "https://github.com/hwisu/codex-acp-2"
+homepage = "https://github.com/hwisu/codex-acp-2"
 
 [[bin]]
 name = "codex-acp"

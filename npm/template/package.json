@@ -4,10 +4,10 @@
   "description": "An ACP-compatible coding agent powered by Codex - ${OS} ${ARCH} binary",
   "license": "Apache-2.0",
   "author": "Zed <hi@zed.dev>",
-  "homepage": "https://github.com/hwisu/codex-acp",
+  "homepage": "https://github.com/hwisu/codex-acp-2",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/hwisu/codex-acp.git"
+    "url": "git+https://github.com/hwisu/codex-acp-2.git"
   },
   "bin": {
     "${PACKAGE_NAME}": "bin/codex-acp"

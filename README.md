@@ -59,7 +59,7 @@ Try it with any other [ACP-compatible client](https://agentclientprotocol.com/ge
 
 #### Installation
 
-Install the adapter from the latest release for your architecture and OS: https://github.com/hwisu/codex-acp/releases
+Install the adapter from the latest release for your architecture and OS: https://github.com/hwisu/codex-acp-2/releases
 
 Release binaries are built for macOS, Linux, and Windows on x64 and arm64. Linux release artifacts include both GNU and musl variants; the npm launcher installs the GNU Linux binary.
 
