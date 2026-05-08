@@ -2,7 +2,7 @@
 name = "codex-acp"
 version = "0.13.0"
 edition = "2024"
-authors = ["Zed <hi@zed.dev>"]
+authors = ["codex-acp-2 contributors"]
 license = "Apache-2.0"
 description = "An ACP-compatible coding agent powered by Codex"
 repository = "https://github.com/hwisu/codex-acp-2"

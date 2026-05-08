@@ -1,9 +1,9 @@
 {
-  "name": "@zed-industries/${PACKAGE_NAME}",
+  "name": "@hwisu/${PACKAGE_NAME}",
   "version": "${VERSION}",
   "description": "An ACP-compatible coding agent powered by Codex - ${OS} ${ARCH} binary",
   "license": "Apache-2.0",
-  "author": "Zed <hi@zed.dev>",
+  "author": "codex-acp-2 contributors",
   "homepage": "https://github.com/hwisu/codex-acp-2",
   "repository": {
     "type": "git",
