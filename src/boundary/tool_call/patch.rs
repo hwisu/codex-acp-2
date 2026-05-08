@@ -5,9 +5,10 @@ use codex_protocol::protocol::{
     PatchApplyBeginEvent, PatchApplyEndEvent, PatchApplyStatus, PatchApplyUpdatedEvent,
 };
 
-use crate::{
-    boundary::{effect::BridgeEffect, permission, raw},
+use crate::boundary::{
+    effect::BridgeEffect,
     file_changes::{FileChangeRenderContext, extract_tool_call_content_from_changes},
+    permission, raw,
 };
 
 pub(crate) fn patch_apply_begin_tool_call(event: PatchApplyBeginEvent) -> ToolCall {

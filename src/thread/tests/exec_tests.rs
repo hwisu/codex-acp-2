@@ -236,7 +236,7 @@ fn test_terminal_output_support_recovers_poisoned_client_info() {
 }
 
 #[test]
-fn test_search_and_listfiles_commands_use_terminal_output() -> anyhow::Result<()> {
+fn test_search_commands_render_without_terminal_output() -> anyhow::Result<()> {
     let cwd = std::env::current_dir()?;
 
     let search = parse_command_tool_call(
@@ -247,7 +247,17 @@ fn test_search_and_listfiles_commands_use_terminal_output() -> anyhow::Result<()
         }],
         &cwd,
     );
-    assert!(search.terminal_output);
+    assert!(!search.terminal_output);
+    assert!(matches!(search.kind, ToolKind::Search));
+
+    let wrapped_search = parse_command_tool_call(
+        vec![ParsedCommand::Unknown {
+            cmd: "command rg parity src".to_string(),
+        }],
+        &cwd,
+    );
+    assert!(!wrapped_search.terminal_output);
+    assert!(matches!(wrapped_search.kind, ToolKind::Search));
 
     let list = parse_command_tool_call(
         vec![ParsedCommand::ListFiles {
@@ -268,30 +278,410 @@ fn test_search_and_listfiles_commands_use_terminal_output() -> anyhow::Result<()
     );
     assert!(!read.terminal_output);
 
+    let diff = parse_command_tool_call(
+        vec![ParsedCommand::Unknown {
+            cmd: "git diff -- README.md".to_string(),
+        }],
+        &cwd,
+    );
+    assert!(!diff.terminal_output);
+    assert!(matches!(diff.kind, ToolKind::Read));
+    assert_eq!(diff.file_extension.as_deref(), Some("diff"));
+
+    let diff_stat = parse_command_tool_call(
+        vec![ParsedCommand::Unknown {
+            cmd: "git diff --stat".to_string(),
+        }],
+        &cwd,
+    );
+    assert!(diff_stat.terminal_output);
+
     Ok(())
 }
 
 #[test]
-fn test_unknown_rust_file_reads_are_rendered_as_read_content() -> anyhow::Result<()> {
+fn test_unknown_commands_reparse_with_codex_bash_rules() -> anyhow::Result<()> {
     let cwd = std::env::current_dir()?;
 
-    let read = parse_command_tool_call(
+    let batcat_read = parse_command_tool_call(
         vec![ParsedCommand::Unknown {
-            cmd: "rtk sed -n '1,120p' src/lib.rs".to_string(),
+            cmd: "command batcat README.md".to_string(),
+        }],
+        &cwd,
+    );
+    assert!(!batcat_read.terminal_output);
+    assert!(matches!(batcat_read.kind, ToolKind::Read));
+    assert_eq!(batcat_read.file_extension.as_deref(), Some("md"));
+    assert_eq!(batcat_read.title, "Read README.md");
+
+    let git_grep = parse_command_tool_call(
+        vec![ParsedCommand::Unknown {
+            cmd: "command git grep TODO src".to_string(),
+        }],
+        &cwd,
+    );
+    assert!(!git_grep.terminal_output);
+    assert!(matches!(git_grep.kind, ToolKind::Search));
+    assert_eq!(git_grep.title, "Search TODO in src");
+
+    let bash_list = parse_command_tool_call(
+        vec![ParsedCommand::Unknown {
+            cmd: "bash -lc 'rg --files | head -n 50'".to_string(),
+        }],
+        &cwd,
+    );
+    assert!(bash_list.terminal_output);
+    assert!(matches!(bash_list.kind, ToolKind::Search));
+    assert!(bash_list.title.starts_with("List "));
+
+    let piped_read = parse_command_tool_call(
+        vec![ParsedCommand::Unknown {
+            cmd: "nl -ba src/lib.rs | sed -n '1,20p'".to_string(),
+        }],
+        &cwd,
+    );
+    assert!(!piped_read.terminal_output);
+    assert!(matches!(piped_read.kind, ToolKind::Read));
+    assert_eq!(piped_read.file_extension.as_deref(), Some("rs"));
+    assert_eq!(piped_read.title, "Read lib.rs");
+
+    for cmd in [
+        "rg -l TODO src | xargs perl -pi -e 's/TODO/DONE/g'",
+        "cat README.md | xargs perl -pi -e 's/a/b/g'",
+        "git diff -- README.md | xargs perl -pi -e 's/a/b/g'",
+        "cat README.md > README.ko.md",
+        "rg TODO src > README.ko.md",
+        "git diff -- README.md > README.ko.md",
+    ] {
+        let execute = parse_command_tool_call(
+            vec![ParsedCommand::Unknown {
+                cmd: cmd.to_string(),
+            }],
+            &cwd,
+        );
+        assert!(execute.terminal_output, "{cmd}");
+        assert!(matches!(execute.kind, ToolKind::Execute), "{cmd}");
+    }
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_rg_exec_completion_does_not_embed_terminal() -> anyhow::Result<()> {
+    let session_id = SessionId::new("test");
+    let client = Arc::new(StubClient::new());
+    let client_capabilities = Arc::new(std::sync::Mutex::new(terminal_output_capabilities()));
+    let client_info = Arc::new(std::sync::Mutex::new(Some(zed_client_info())));
+    let session_client =
+        SessionClient::with_client(session_id, client.clone(), client_capabilities, client_info);
+    let thread = Arc::new(StubCodexThread::new());
+    let (response_tx, _response_rx) = tokio::sync::oneshot::channel();
+    let (message_tx, _message_rx) = tokio::sync::mpsc::unbounded_channel();
+    let mut prompt_state =
+        PromptState::new("submission-id".to_string(), thread, message_tx, response_tx);
+    let cwd = std::env::current_dir()?;
+
+    prompt_state
+        .handle_event(
+            &session_client,
+            EventMsg::ExecCommandBegin(ExecCommandBeginEvent {
+                call_id: "call-id".to_string(),
+                process_id: None,
+                turn_id: "turn-id".to_string(),
+                started_at_ms: 0,
+                command: vec!["rg".to_string(), "Search".to_string(), "src".to_string()],
+                cwd: cwd.clone().try_into()?,
+                parsed_cmd: vec![ParsedCommand::Unknown {
+                    cmd: "rg Search src".to_string(),
+                }],
+                source: ExecCommandSource::default(),
+                interaction_input: None,
+            }),
+        )
+        .await;
+    prompt_state
+        .handle_event(
+            &session_client,
+            EventMsg::ExecCommandEnd(ExecCommandEndEvent {
+                call_id: "call-id".to_string(),
+                process_id: None,
+                turn_id: "turn-id".to_string(),
+                completed_at_ms: 0,
+                command: vec!["rg".to_string(), "Search".to_string(), "src".to_string()],
+                cwd: cwd.try_into()?,
+                parsed_cmd: vec![],
+                source: ExecCommandSource::default(),
+                interaction_input: None,
+                stdout: "src/permission.rs:Search result\n".to_string(),
+                stderr: String::new(),
+                aggregated_output: "src/permission.rs:Search result\n".to_string(),
+                exit_code: 0,
+                duration: Duration::from_millis(1),
+                formatted_output: "src/permission.rs:Search result\n".to_string(),
+                status: ExecCommandStatus::Completed,
+            }),
+        )
+        .await;
+
+    let tool_call = client
+        .tool_calls()
+        .into_iter()
+        .next()
+        .expect("expected initial tool call");
+    assert!(matches!(
+        tool_call.content.first(),
+        Some(ToolCallContent::Content(Content {
+            content: ContentBlock::Text(TextContent { text, .. }),
+            ..
+        })) if text.contains("Waiting for command output")
+    ));
+
+    let update = client
+        .tool_call_updates()
+        .into_iter()
+        .next()
+        .expect("expected completion update");
+
+    assert_eq!(update.fields.status, Some(ToolCallStatus::Completed));
+    assert_eq!(update.fields.kind, Some(ToolKind::Search));
+    assert!(matches!(
+        update.fields.content.as_ref().and_then(|content| content.first()),
+        Some(ToolCallContent::Content(Content {
+            content: ContentBlock::Text(TextContent { text, .. }),
+            ..
+        })) if text == "```sh\nsrc/permission.rs:Search result\n```\n"
+    ));
+
+    Ok(())
+}
+
+#[test]
+fn test_unknown_file_reads_are_rendered_as_read_content() -> anyhow::Result<()> {
+    let cwd = std::env::current_dir()?;
+
+    for cmd in [
+        "sed -n '1,120p' src/lib.rs",
+        "sed -n -e '1,120p' -- src/lib.rs",
+        "sed -ne'/fn main/p' src/lib.rs",
+        "sed --quiet --expression='1,120p' src/lib.rs",
+        "command sed -nE '1,120p' src/lib.rs",
+    ] {
+        let rust_read = parse_command_tool_call(
+            vec![ParsedCommand::Unknown {
+                cmd: cmd.to_string(),
+            }],
+            &cwd,
+        );
+
+        assert!(!rust_read.terminal_output, "{cmd}");
+        assert!(matches!(rust_read.kind, ToolKind::Read), "{cmd}");
+        assert_eq!(rust_read.file_extension.as_deref(), Some("rs"), "{cmd}");
+        assert_eq!(rust_read.title, "Read lib.rs", "{cmd}");
+        assert_eq!(rust_read.locations.len(), 1, "{cmd}");
+
+        assert_eq!(
+            rendered_output_text_for_extension(rust_read.file_extension.as_deref()),
+            "```rust\nbody\n```\n",
+            "{cmd}"
+        );
+    }
+
+    let markdown_read = parse_command_tool_call(
+        vec![ParsedCommand::Unknown {
+            cmd: "sed -n '1,80p' README.md".to_string(),
         }],
         &cwd,
     );
 
-    assert!(!read.terminal_output);
-    assert!(matches!(read.kind, ToolKind::Read));
-    assert_eq!(read.file_extension.as_deref(), Some("rs"));
-    assert_eq!(read.title, "Read lib.rs");
-    assert_eq!(read.locations.len(), 1);
-
+    assert!(!markdown_read.terminal_output);
+    assert!(matches!(markdown_read.kind, ToolKind::Read));
+    assert_eq!(markdown_read.file_extension.as_deref(), Some("md"));
+    assert_eq!(markdown_read.title, "Read README.md");
     assert_eq!(
-        rendered_output_text_for_extension(read.file_extension.as_deref()),
-        "```rust\nbody\n```\n"
+        rendered_output_text_for_extension(markdown_read.file_extension.as_deref()),
+        "```markdown\nbody\n```\n"
     );
+
+    let env_prefixed_full_path_read = parse_command_tool_call(
+        vec![ParsedCommand::Unknown {
+            cmd: "NO_COLOR=1 /usr/bin/cat README.md".to_string(),
+        }],
+        &cwd,
+    );
+    assert!(!env_prefixed_full_path_read.terminal_output);
+    assert!(matches!(env_prefixed_full_path_read.kind, ToolKind::Read));
+    assert_eq!(
+        env_prefixed_full_path_read.file_extension.as_deref(),
+        Some("md")
+    );
+
+    let sed_stdout_transform_read = parse_command_tool_call(
+        vec![ParsedCommand::Unknown {
+            cmd: "sed 's/main/test/' src/lib.rs".to_string(),
+        }],
+        &cwd,
+    );
+    assert!(!sed_stdout_transform_read.terminal_output);
+    assert!(matches!(sed_stdout_transform_read.kind, ToolKind::Read));
+    assert_eq!(
+        sed_stdout_transform_read.file_extension.as_deref(),
+        Some("rs")
+    );
+
+    let jq_read = parse_command_tool_call(
+        vec![ParsedCommand::Unknown {
+            cmd: "jq . npm/package.json".to_string(),
+        }],
+        &cwd,
+    );
+    assert!(!jq_read.terminal_output);
+    assert!(matches!(jq_read.kind, ToolKind::Read));
+    assert_eq!(jq_read.file_extension.as_deref(), Some("json"));
+    assert_eq!(
+        rendered_output_text_for_extension(jq_read.file_extension.as_deref()),
+        "```json\nbody\n```\n"
+    );
+
+    let temp_cwd = std::env::temp_dir()
+        .join("codex-acp-read-highlight-tests")
+        .join(uuid::Uuid::new_v4().to_string());
+    std::fs::create_dir_all(&temp_cwd)?;
+    std::fs::write(temp_cwd.join("CONFIG.JSON"), "{}\n")?;
+    let uppercase_extension_read = parse_command_tool_call(
+        vec![ParsedCommand::Unknown {
+            cmd: "sed -n '1,20p' CONFIG.JSON".to_string(),
+        }],
+        &temp_cwd,
+    );
+    assert!(!uppercase_extension_read.terminal_output);
+    assert_eq!(
+        uppercase_extension_read.file_extension.as_deref(),
+        Some("json")
+    );
+    assert_eq!(
+        rendered_output_text_for_extension(uppercase_extension_read.file_extension.as_deref()),
+        "```json\nbody\n```\n"
+    );
+
+    let mutating_sed = parse_command_tool_call(
+        vec![ParsedCommand::Unknown {
+            cmd: "sed -i 's/a/b/' src/lib.rs".to_string(),
+        }],
+        &cwd,
+    );
+    assert!(mutating_sed.terminal_output);
+    assert!(matches!(mutating_sed.kind, ToolKind::Execute));
+
+    let mutating_yq = parse_command_tool_call(
+        vec![ParsedCommand::Unknown {
+            cmd: "yq -i '.name = \"changed\"' npm/package.json".to_string(),
+        }],
+        &cwd,
+    );
+    assert!(mutating_yq.terminal_output);
+    assert!(matches!(mutating_yq.kind, ToolKind::Execute));
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_git_diff_exec_completion_uses_diff_content() -> anyhow::Result<()> {
+    let session_id = SessionId::new("test");
+    let client = Arc::new(StubClient::new());
+    let session_client =
+        SessionClient::with_client(session_id, client.clone(), Arc::default(), Arc::default());
+    let thread = Arc::new(StubCodexThread::new());
+    let (response_tx, _response_rx) = tokio::sync::oneshot::channel();
+    let (message_tx, _message_rx) = tokio::sync::mpsc::unbounded_channel();
+    let mut prompt_state =
+        PromptState::new("submission-id".to_string(), thread, message_tx, response_tx);
+    let cwd = std::env::temp_dir()
+        .join("codex-acp-git-diff-exec-tests")
+        .join(uuid::Uuid::new_v4().to_string());
+    let path = cwd.join("src/lib.rs");
+    std::fs::create_dir_all(path.parent().unwrap())?;
+    std::fs::write(&path, "fn main() { println!(\"hi\"); }\n")?;
+    let diff_output = "\
+diff --git i/src/lib.rs w/src/lib.rs
+index 1111111..2222222 100644
+--- i/src/lib.rs
++++ w/src/lib.rs
+@@ -1 +1 @@
+-fn main(){println!(\"hi\");}
++fn main() { println!(\"hi\"); }
+";
+
+    prompt_state
+        .handle_event(
+            &session_client,
+            EventMsg::ExecCommandBegin(ExecCommandBeginEvent {
+                call_id: "call-id".to_string(),
+                process_id: None,
+                turn_id: "turn-id".to_string(),
+                started_at_ms: 0,
+                command: vec![
+                    "git".to_string(),
+                    "diff".to_string(),
+                    "--".to_string(),
+                    "src/lib.rs".to_string(),
+                ],
+                cwd: cwd.clone().try_into()?,
+                parsed_cmd: vec![ParsedCommand::Unknown {
+                    cmd: "git diff -- src/lib.rs".to_string(),
+                }],
+                source: ExecCommandSource::default(),
+                interaction_input: None,
+            }),
+        )
+        .await;
+    prompt_state
+        .handle_event(
+            &session_client,
+            EventMsg::ExecCommandEnd(ExecCommandEndEvent {
+                call_id: "call-id".to_string(),
+                process_id: None,
+                turn_id: "turn-id".to_string(),
+                completed_at_ms: 0,
+                command: vec![
+                    "git".to_string(),
+                    "diff".to_string(),
+                    "--".to_string(),
+                    "src/lib.rs".to_string(),
+                ],
+                cwd: cwd.try_into()?,
+                parsed_cmd: vec![],
+                source: ExecCommandSource::default(),
+                interaction_input: None,
+                stdout: diff_output.to_string(),
+                stderr: String::new(),
+                aggregated_output: diff_output.to_string(),
+                exit_code: 0,
+                duration: Duration::from_millis(1),
+                formatted_output: diff_output.to_string(),
+                status: ExecCommandStatus::Completed,
+            }),
+        )
+        .await;
+
+    let update = client
+        .tool_call_updates()
+        .into_iter()
+        .next()
+        .expect("expected completion update");
+
+    assert_eq!(update.fields.status, Some(ToolCallStatus::Completed));
+    assert_eq!(update.fields.kind, Some(ToolKind::Read));
+    assert!(matches!(
+        update
+            .fields
+            .content
+            .as_ref()
+            .and_then(|content| content.first()),
+        Some(ToolCallContent::Diff(diff))
+            if diff.path == path
+                && diff.old_text.as_deref() == Some("fn main(){println!(\"hi\");}\n")
+                && diff.new_text == "fn main() { println!(\"hi\"); }\n"
+    ));
 
     Ok(())
 }
@@ -415,6 +805,19 @@ async fn test_zed_client_keeps_terminal_meta_streaming() -> anyhow::Result<()> {
         Some(ToolCallStatus::Completed)
     );
     assert_eq!(
+        completion_update.fields.content.as_ref().map(Vec::len),
+        Some(1)
+    );
+    assert!(matches!(
+        completion_update
+            .fields
+            .content
+            .as_ref()
+            .and_then(|content| content.as_slice().first()),
+        Some(ToolCallContent::Terminal(Terminal { terminal_id, .. }))
+            if terminal_id.0.as_ref() == "call-id"
+    ));
+    assert_eq!(
         completion_update
             .meta
             .as_ref()
@@ -517,6 +920,19 @@ async fn test_zed_client_replays_completion_output_without_delta() -> anyhow::Re
         tool_call_output_reason(completion_update.meta.as_ref()),
         Some("directAnswerCommand")
     );
+    assert_eq!(
+        completion_update.fields.content.as_ref().map(Vec::len),
+        Some(1)
+    );
+    assert!(matches!(
+        completion_update
+            .fields
+            .content
+            .as_ref()
+            .and_then(|content| content.as_slice().first()),
+        Some(ToolCallContent::Terminal(Terminal { terminal_id, .. }))
+            if terminal_id.0.as_ref() == "call-id"
+    ));
     assert_eq!(
         completion_update
             .meta

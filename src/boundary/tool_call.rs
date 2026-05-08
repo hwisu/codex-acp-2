@@ -1,4 +1,5 @@
 mod collab;
+mod command;
 mod dynamic;
 mod exec;
 mod guardian;
@@ -15,6 +16,7 @@ pub(crate) use collab::{
     collab_spawn_replay_effect, collab_waiting_begin_effect, collab_waiting_end_effect,
     collab_waiting_replay_effect,
 };
+pub(crate) use command::{ParseCommandToolCall, parse_command_tool_call};
 pub(crate) use dynamic::{dynamic_tool_call_begin_effect, dynamic_tool_call_end_effect};
 pub(crate) use exec::{
     ActiveCommand, exec_command_begin_effect_plan, exec_command_end_effect_plan,

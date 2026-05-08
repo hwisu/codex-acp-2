@@ -6,11 +6,13 @@ use agent_client_protocol::schema::{
 };
 use codex_protocol::protocol::{ExecCommandBeginEvent, ExecCommandEndEvent, ExecCommandStatus};
 
+use super::{ParseCommandToolCall, parse_command_tool_call};
 use crate::{
-    boundary::{compat, effect::BridgeEffect, raw},
+    boundary::{
+        compat, effect::BridgeEffect,
+        file_changes::extract_tool_call_content_from_command_output_diff, raw,
+    },
     display::tool_call_text_content,
-    file_changes::extract_tool_call_content_from_command_output_diff,
-    permission::{ParseCommandToolCall, parse_command_tool_call},
 };
 
 pub(crate) struct ActiveCommand {
@@ -161,14 +163,20 @@ impl ActiveCommand {
             return Some(self.render_empty_completion_content(exit_code, status));
         }
 
+        let output_content = self.render_output_content(output_snapshot);
         if supports_terminal_output {
-            let mut content = vec![ToolCallContent::Terminal(Terminal::new(
+            if output_content
+                .iter()
+                .any(|content| matches!(content, ToolCallContent::Diff(_)))
+            {
+                return Some(output_content);
+            }
+
+            Some(vec![ToolCallContent::Terminal(Terminal::new(
                 terminal_id.to_owned(),
-            ))];
-            content.extend(self.render_output_content(output_snapshot));
-            Some(content)
+            ))])
         } else {
-            Some(self.render_output_content(output_snapshot))
+            Some(output_content)
         }
     }
 

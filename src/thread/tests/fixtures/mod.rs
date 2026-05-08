@@ -70,8 +70,8 @@ pub(super) use itertools::Itertools;
 pub(super) use tokio::sync::{Mutex, Notify, mpsc, mpsc::UnboundedSender};
 
 pub(super) use crate::boundary::tool_call::ActiveCommand;
+pub(super) use crate::boundary::tool_call::parse_command_tool_call;
 pub(super) use crate::guardian::{guardian_action_summary, guardian_assessment_content};
-pub(super) use crate::permission::parse_command_tool_call;
 pub(super) use crate::session_mode::{
     CODEX_WORKSPACE_PROFILE_ID, current_session_mode_id, mode_trusts_project,
 };

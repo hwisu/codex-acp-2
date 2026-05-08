@@ -4,6 +4,7 @@ pub(crate) mod constants;
 #[cfg(test)]
 mod contracts;
 pub(crate) mod effect;
+pub(crate) mod file_changes;
 pub(crate) mod mapper;
 pub(crate) mod mcp_approval;
 pub(crate) mod model;

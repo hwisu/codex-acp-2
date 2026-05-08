@@ -337,6 +337,34 @@ index 1111111..2222222 100644
     }
 
     #[test]
+    fn git_diff_output_with_custom_prefixes_uses_diff_content() {
+        let cwd = temp_path("git-diff-custom-prefix-root");
+        let path = cwd.join("src/lib.rs");
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(&path, "fn main() { println!(\"hi\"); }\n").unwrap();
+        let output = "\
+diff --git i/src/lib.rs w/src/lib.rs
+index 1111111..2222222 100644
+--- i/src/lib.rs
++++ w/src/lib.rs
+@@ -1 +1 @@
+-fn main(){println!(\"hi\");}
++fn main() { println!(\"hi\"); }
+";
+
+        let content =
+            extract_tool_call_content_from_command_output_diff(&cwd, output).expect("diff content");
+        let diff = first_diff(content);
+
+        assert_eq!(diff.path, path);
+        assert_eq!(
+            diff.old_text.as_deref(),
+            Some("fn main(){println!(\"hi\");}\n")
+        );
+        assert_eq!(diff.new_text, "fn main() { println!(\"hi\"); }\n");
+    }
+
+    #[test]
     fn rustfmt_command_output_uses_diff_content() {
         let cwd = temp_path("rustfmt-root");
         let path = cwd.join("src/main.rs");

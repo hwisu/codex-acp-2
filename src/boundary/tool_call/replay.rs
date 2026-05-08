@@ -9,13 +9,11 @@ use codex_protocol::models::{ResponseItem, WebSearchAction};
 use codex_shell_command::parse_command::parse_command;
 use uuid::Uuid;
 
-use crate::{
-    boundary::{
-        effect::{BridgeEffect, IgnoredCodexEventReason},
-        mapper::{ReplayResponseItemRoute, ReplayToolCallStatus},
-        raw,
-    },
-    permission::{ParseCommandToolCall, parse_command_tool_call},
+use super::{ParseCommandToolCall, parse_command_tool_call};
+use crate::boundary::{
+    effect::{BridgeEffect, IgnoredCodexEventReason},
+    mapper::{ReplayResponseItemRoute, ReplayToolCallStatus},
+    raw,
 };
 
 pub(crate) enum ReplayResponseItemPlan<'a> {

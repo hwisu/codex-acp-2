@@ -9,6 +9,117 @@ const DIRECT_EVENT_JSON_PATTERNS: &[&str] = &[
     "serde_json::json!(output)",
 ];
 
+const ADVERTISED_ACP_AGENT_HANDLER_PATTERNS: &[&str] = &[
+    "request: InitializeRequest",
+    "AuthenticateRequest, authenticate",
+    "LogoutRequest, logout",
+    "NewSessionRequest, new_session",
+    "LoadSessionRequest, load_session",
+    "ListSessionsRequest, list_sessions",
+    "CloseSessionRequest, close_session",
+    "PromptRequest, prompt",
+    "notification: CancelNotification",
+    "SetSessionModeRequest, set_session_mode",
+    "SetSessionModelRequest, set_session_model",
+    "SetSessionConfigOptionRequest, set_session_config_option",
+];
+
+const ENABLED_SDK_AGENT_METHODS_NOT_ADVERTISED: &[&str] =
+    &["ForkSessionRequest", "ResumeSessionRequest"];
+
+#[test]
+fn acp_agent_registers_every_advertised_handler() {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/codex_agent.rs");
+    let source = fs::read_to_string(&path).expect("read codex_agent.rs");
+    let source = normalize_whitespace(&source);
+    let missing = ADVERTISED_ACP_AGENT_HANDLER_PATTERNS
+        .iter()
+        .filter(|pattern| !source.contains(*pattern))
+        .copied()
+        .collect::<Vec<_>>();
+
+    assert!(
+        missing.is_empty(),
+        "Codex ACP must register every handler it advertises:\n{}",
+        missing.join("\n")
+    );
+}
+
+#[test]
+fn acp_agent_does_not_advertise_unimplemented_enabled_sdk_methods() {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/codex_agent.rs");
+    let source = fs::read_to_string(&path).expect("read codex_agent.rs");
+    let source = normalize_whitespace(&source);
+    let unsupported = ENABLED_SDK_AGENT_METHODS_NOT_ADVERTISED
+        .iter()
+        .filter(|request| source.contains(**request))
+        .copied()
+        .collect::<Vec<_>>();
+
+    assert!(
+        unsupported.is_empty(),
+        "enabled ACP SDK methods without implementation must stay unregistered and unadvertised:\n{}",
+        unsupported.join("\n")
+    );
+    assert!(
+        source.contains(".load_session(true)")
+            && source.contains(".close(SessionCloseCapabilities::new())")
+            && source.contains(".list(SessionListCapabilities::new())")
+            && !source.contains(".fork(")
+            && !source.contains(".resume("),
+        "session capabilities must match the registered ACP handler surface"
+    );
+}
+
+#[test]
+fn readmes_expose_current_acp_support_summary_at_the_top() {
+    let version = env!("CARGO_PKG_VERSION");
+    for readme in ["README.md", "README.ko.md"] {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join(readme);
+        let source = fs::read_to_string(&path).expect("read README");
+        let top = source.lines().take(5).collect::<Vec<_>>().join("\n");
+
+        assert!(
+            top.contains(version)
+                && top.contains("12/12")
+                && top.contains("12/14")
+                && top.contains("session/fork")
+                && top.contains("session/resume"),
+            "{readme} must expose the current ACP support summary near the top"
+        );
+    }
+}
+
+#[test]
+fn readmes_expose_upstream_acp_and_codex_versions() {
+    let required = [
+        "https://github.com/agentclientprotocol/codex-acp",
+        "@agentclientprotocol/codex-acp = 0.0.43",
+        "https://crates.io/crates/agent-client-protocol",
+        "https://github.com/agentclientprotocol/rust-sdk",
+        "agent-client-protocol = 0.11.1",
+        "agent-client-protocol-schema = 0.12.0",
+        "https://github.com/openai/codex/tree/rust-v0.129.0/codex-rs",
+        "2808a4deb181e5ca2b1293a1a5980938cb746861",
+    ];
+
+    for readme in ["README.md", "README.ko.md"] {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join(readme);
+        let source = fs::read_to_string(&path).expect("read README");
+        let missing = required
+            .iter()
+            .filter(|text| !source.contains(**text))
+            .copied()
+            .collect::<Vec<_>>();
+
+        assert!(
+            missing.is_empty(),
+            "{readme} must document upstream ACP/Codex references and pinned versions:\n{}",
+            missing.join("\n")
+        );
+    }
+}
+
 #[test]
 fn thread_submission_modules_do_not_serialize_codex_events_directly() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/thread");
@@ -845,4 +956,8 @@ fn scan_rust_files(root: &Path, visit: &mut impl FnMut(&Path, &str)) {
             visit(&path, &source);
         }
     }
+}
+
+fn normalize_whitespace(source: &str) -> String {
+    source.split_whitespace().collect::<Vec<_>>().join(" ")
 }

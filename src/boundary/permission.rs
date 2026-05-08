@@ -6,6 +6,7 @@ use agent_client_protocol::schema::{
     ToolCallStatus, ToolCallUpdate, ToolCallUpdateFields, ToolKind,
 };
 use codex_protocol::{
+    models::AdditionalPermissionProfile,
     permissions::FileSystemAccessMode,
     protocol::{
         ApplyPatchApprovalRequestEvent, ExecApprovalRequestEvent, NetworkApprovalContext,
@@ -16,13 +17,141 @@ use codex_protocol::{
 use itertools::Itertools;
 
 use crate::{
-    boundary::{compat, constants::permission_option, effect::PermissionRequestSeed, raw},
-    file_changes::{FileChangeRenderContext, extract_tool_call_content_from_changes},
+    boundary::{
+        compat,
+        constants::permission_option,
+        effect::PermissionRequestSeed,
+        file_changes::{FileChangeRenderContext, extract_tool_call_content_from_changes},
+        raw,
+        tool_call::{ParseCommandToolCall, parse_command_tool_call},
+    },
     guardian::format_file_system_entries,
-    permission::{ParseCommandToolCall, build_exec_permission_options, parse_command_tool_call},
 };
 
 const MAX_DEFAULT_OPEN_EDIT_FILES: usize = 3;
+
+#[derive(Clone)]
+pub(crate) struct ExecPermissionOption {
+    pub(crate) option_id: &'static str,
+    pub(crate) permission_option: PermissionOption,
+    pub(crate) decision: ReviewDecision,
+}
+
+pub(crate) fn build_exec_permission_options(
+    available_decisions: &[ReviewDecision],
+    network_approval_context: Option<&NetworkApprovalContext>,
+    additional_permissions: Option<&AdditionalPermissionProfile>,
+) -> Vec<ExecPermissionOption> {
+    available_decisions
+        .iter()
+        .map(|decision| match decision {
+            ReviewDecision::Approved => ExecPermissionOption {
+                option_id: permission_option::APPROVED,
+                permission_option: PermissionOption::new(
+                    permission_option::APPROVED,
+                    if network_approval_context.is_some() {
+                        "Yes, just this once"
+                    } else {
+                        "Yes, proceed"
+                    },
+                    PermissionOptionKind::AllowOnce,
+                ),
+                decision: ReviewDecision::Approved,
+            },
+            ReviewDecision::ApprovedExecpolicyAmendment {
+                proposed_execpolicy_amendment,
+            } => {
+                let command_prefix = proposed_execpolicy_amendment.command().join(" ");
+                let label = if command_prefix.contains('\n')
+                    || command_prefix.contains('\r')
+                    || command_prefix.is_empty()
+                {
+                    "Yes, and remember this command pattern".to_string()
+                } else {
+                    format!(
+                        "Yes, and don't ask again for commands that start with `{command_prefix}`"
+                    )
+                };
+                ExecPermissionOption {
+                    option_id: permission_option::APPROVED_EXECPOLICY_AMENDMENT,
+                    permission_option: PermissionOption::new(
+                        permission_option::APPROVED_EXECPOLICY_AMENDMENT,
+                        label,
+                        PermissionOptionKind::AllowAlways,
+                    ),
+                    decision: ReviewDecision::ApprovedExecpolicyAmendment {
+                        proposed_execpolicy_amendment: proposed_execpolicy_amendment.clone(),
+                    },
+                }
+            }
+            ReviewDecision::ApprovedForSession => ExecPermissionOption {
+                option_id: permission_option::APPROVED_FOR_SESSION,
+                permission_option: PermissionOption::new(
+                    permission_option::APPROVED_FOR_SESSION,
+                    if network_approval_context.is_some() {
+                        "Yes, and allow this host for this session"
+                    } else if additional_permissions.is_some() {
+                        "Yes, and allow these permissions for this session"
+                    } else {
+                        "Yes, and don't ask again for this command in this session"
+                    },
+                    PermissionOptionKind::AllowAlways,
+                ),
+                decision: ReviewDecision::ApprovedForSession,
+            },
+            ReviewDecision::NetworkPolicyAmendment {
+                network_policy_amendment,
+            } => {
+                let (option_id, label, kind) = match network_policy_amendment.action {
+                    codex_protocol::protocol::NetworkPolicyRuleAction::Allow => (
+                        permission_option::NETWORK_POLICY_AMENDMENT_ALLOW,
+                        "Yes, and allow this host in the future",
+                        PermissionOptionKind::AllowAlways,
+                    ),
+                    codex_protocol::protocol::NetworkPolicyRuleAction::Deny => (
+                        permission_option::NETWORK_POLICY_AMENDMENT_DENY,
+                        "No, and block this host in the future",
+                        PermissionOptionKind::RejectAlways,
+                    ),
+                };
+                ExecPermissionOption {
+                    option_id,
+                    permission_option: PermissionOption::new(option_id, label, kind),
+                    decision: ReviewDecision::NetworkPolicyAmendment {
+                        network_policy_amendment: network_policy_amendment.clone(),
+                    },
+                }
+            }
+            ReviewDecision::Denied => ExecPermissionOption {
+                option_id: permission_option::DENIED,
+                permission_option: PermissionOption::new(
+                    permission_option::DENIED,
+                    "No, continue without running it",
+                    PermissionOptionKind::RejectOnce,
+                ),
+                decision: ReviewDecision::Denied,
+            },
+            ReviewDecision::Abort => ExecPermissionOption {
+                option_id: permission_option::ABORT,
+                permission_option: PermissionOption::new(
+                    permission_option::ABORT,
+                    "No, and tell Codex what to do differently",
+                    PermissionOptionKind::RejectOnce,
+                ),
+                decision: ReviewDecision::Abort,
+            },
+            ReviewDecision::TimedOut => ExecPermissionOption {
+                option_id: permission_option::TIMED_OUT,
+                permission_option: PermissionOption::new(
+                    permission_option::TIMED_OUT,
+                    "Time out, tell Codex what to do differently",
+                    PermissionOptionKind::RejectOnce,
+                ),
+                decision: ReviewDecision::TimedOut,
+            },
+        })
+        .collect()
+}
 
 pub(crate) struct ExecApprovalInteraction {
     pub(crate) request_key: String,
