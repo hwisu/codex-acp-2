@@ -6,6 +6,8 @@ use codex_protocol::parse_command::ParsedCommand;
 use codex_protocol::protocol::{NetworkApprovalContext, ReviewDecision};
 use std::path::{Path, PathBuf};
 
+use crate::boundary::constants::permission_option;
+
 #[derive(Clone)]
 pub(crate) struct ExecPermissionOption {
     pub option_id: &'static str,
@@ -22,9 +24,9 @@ pub(crate) fn build_exec_permission_options(
         .iter()
         .map(|decision| match decision {
             ReviewDecision::Approved => ExecPermissionOption {
-                option_id: "approved",
+                option_id: permission_option::APPROVED,
                 permission_option: PermissionOption::new(
-                    "approved",
+                    permission_option::APPROVED,
                     if network_approval_context.is_some() {
                         "Yes, just this once"
                     } else {
@@ -49,9 +51,9 @@ pub(crate) fn build_exec_permission_options(
                     )
                 };
                 ExecPermissionOption {
-                    option_id: "approved-execpolicy-amendment",
+                    option_id: permission_option::APPROVED_EXECPOLICY_AMENDMENT,
                     permission_option: PermissionOption::new(
-                        "approved-execpolicy-amendment",
+                        permission_option::APPROVED_EXECPOLICY_AMENDMENT,
                         label,
                         PermissionOptionKind::AllowAlways,
                     ),
@@ -61,9 +63,9 @@ pub(crate) fn build_exec_permission_options(
                 }
             }
             ReviewDecision::ApprovedForSession => ExecPermissionOption {
-                option_id: "approved-for-session",
+                option_id: permission_option::APPROVED_FOR_SESSION,
                 permission_option: PermissionOption::new(
-                    "approved-for-session",
+                    permission_option::APPROVED_FOR_SESSION,
                     if network_approval_context.is_some() {
                         "Yes, and allow this host for this session"
                     } else if additional_permissions.is_some() {
@@ -80,12 +82,12 @@ pub(crate) fn build_exec_permission_options(
             } => {
                 let (option_id, label, kind) = match network_policy_amendment.action {
                     codex_protocol::protocol::NetworkPolicyRuleAction::Allow => (
-                        "network-policy-amendment-allow",
+                        permission_option::NETWORK_POLICY_AMENDMENT_ALLOW,
                         "Yes, and allow this host in the future",
                         PermissionOptionKind::AllowAlways,
                     ),
                     codex_protocol::protocol::NetworkPolicyRuleAction::Deny => (
-                        "network-policy-amendment-deny",
+                        permission_option::NETWORK_POLICY_AMENDMENT_DENY,
                         "No, and block this host in the future",
                         PermissionOptionKind::RejectAlways,
                     ),
@@ -99,27 +101,27 @@ pub(crate) fn build_exec_permission_options(
                 }
             }
             ReviewDecision::Denied => ExecPermissionOption {
-                option_id: "denied",
+                option_id: permission_option::DENIED,
                 permission_option: PermissionOption::new(
-                    "denied",
+                    permission_option::DENIED,
                     "No, continue without running it",
                     PermissionOptionKind::RejectOnce,
                 ),
                 decision: ReviewDecision::Denied,
             },
             ReviewDecision::Abort => ExecPermissionOption {
-                option_id: "abort",
+                option_id: permission_option::ABORT,
                 permission_option: PermissionOption::new(
-                    "abort",
+                    permission_option::ABORT,
                     "No, and tell Codex what to do differently",
                     PermissionOptionKind::RejectOnce,
                 ),
                 decision: ReviewDecision::Abort,
             },
             ReviewDecision::TimedOut => ExecPermissionOption {
-                option_id: "timed_out",
+                option_id: permission_option::TIMED_OUT,
                 permission_option: PermissionOption::new(
-                    "timed_out",
+                    permission_option::TIMED_OUT,
                     "Time out, tell Codex what to do differently",
                     PermissionOptionKind::RejectOnce,
                 ),

@@ -9,8 +9,10 @@ use std::sync::Arc;
 use tokio_util::compat::{TokioAsyncReadCompatExt, TokioAsyncWriteCompatExt};
 use tracing_subscriber::EnvFilter;
 
+mod boundary;
 mod codex_agent;
 mod display;
+mod file_changes;
 mod guardian;
 mod permission;
 mod session_mode;

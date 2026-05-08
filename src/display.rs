@@ -1,5 +1,5 @@
 use agent_client_protocol::schema::{
-    Content, ContentBlock, Meta, ResourceLink, TextContent, ToolCallContent,
+    Content, ContentBlock, ResourceLink, TextContent, ToolCallContent,
 };
 use codex_protocol::ThreadId;
 use codex_protocol::protocol::{
@@ -190,36 +190,6 @@ pub(crate) fn tool_call_text_content(text: impl Into<String>) -> ToolCallContent
     ToolCallContent::Content(Content::new(ContentBlock::Text(TextContent::new(
         text.into(),
     ))))
-}
-
-pub(crate) fn tool_call_output_display_meta(default_open: bool, reason: &str) -> Meta {
-    Meta::from_iter([(
-        "codex_acp".to_string(),
-        serde_json::json!({
-            "toolCallOutput": {
-                "defaultOpen": default_open,
-                "initiallyFolded": !default_open,
-                "reason": reason,
-            }
-        }),
-    )])
-}
-
-pub(crate) fn insert_tool_call_output_display_meta(
-    meta: &mut Meta,
-    default_open: bool,
-    reason: &str,
-) {
-    meta.insert(
-        "codex_acp".to_string(),
-        serde_json::json!({
-            "toolCallOutput": {
-                "defaultOpen": default_open,
-                "initiallyFolded": !default_open,
-                "reason": reason,
-            }
-        }),
-    );
 }
 
 pub(crate) fn format_token_count_compact(value: i64) -> String {

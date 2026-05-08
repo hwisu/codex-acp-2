@@ -13,6 +13,8 @@ use acp::schema::{
 use acp::{Agent, Client, ConnectTo, ConnectionTo, Error};
 use agent_client_protocol as acp;
 
+use crate::boundary::constants::meta as boundary_meta;
+
 macro_rules! acp_handler {
     ($agent:expr, $req:ty, $method:ident) => {{
         let agent = $agent.clone();
@@ -157,7 +159,10 @@ fn parse_codex_mcp_server_meta(meta: Option<Meta>) -> Result<CodexMcpServerMeta,
         return Ok(CodexMcpServerMeta::default());
     };
 
-    let value = if let Some(value) = meta.get("codex").or_else(|| meta.get("codex_acp")) {
+    let value = if let Some(value) = meta
+        .get("codex")
+        .or_else(|| meta.get(boundary_meta::CODEX_ACP))
+    {
         if !value.is_object() {
             return Err(Error::invalid_params().data("MCP server _meta.codex must be an object"));
         }
@@ -1256,14 +1261,17 @@ mod tests {
 
     #[test]
     fn convert_mcp_server_accepts_codex_acp_meta_alias() {
-        let meta: Meta = serde_json::from_value(json!({
-            "codex_acp": {
+        let mut meta_value = serde_json::Map::new();
+        meta_value.insert(
+            boundary_meta::CODEX_ACP.to_string(),
+            json!({
                 "enabled": false,
                 "startupTimeoutSec": 1.25,
                 "enabledTools": ["read"]
-            }
-        }))
-        .expect("valid meta");
+            }),
+        );
+        let meta: Meta =
+            serde_json::from_value(serde_json::Value::Object(meta_value)).expect("valid meta");
 
         let server = McpServer::Http(
             McpServerHttp::new("Files Server", "https://example.com/mcp").meta(meta),
