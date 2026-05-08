@@ -3,11 +3,14 @@ use std::collections::HashMap;
 use agent_client_protocol::schema::SessionConfigOption;
 use codex_protocol::{
     ThreadId,
-    config_types::ModeKind,
-    protocol::{AgentStatus, CollabAgentStatusEntry, EventMsg, RateLimitSnapshot, TokenUsageInfo},
+    protocol::{AgentStatus, CollabAgentStatusEntry, RateLimitSnapshot, TokenUsageInfo},
 };
 
-use crate::{display::format_agent_label, user_input::PendingUserInputRequest};
+use crate::{
+    boundary::mapper::{ActorCollabAgentUpdate, ActorStateUpdate},
+    display::format_agent_label,
+    user_input::PendingUserInputRequest,
+};
 
 #[derive(Debug, Clone, Default)]
 pub(super) struct UsageSnapshot {
@@ -28,7 +31,7 @@ impl UsageSnapshot {
 #[derive(Default)]
 pub(super) struct ActorState {
     last_sent_config_options: Option<Vec<SessionConfigOption>>,
-    active_collaboration_mode_kind: Option<ModeKind>,
+    active_collaboration_mode_kind: Option<codex_protocol::config_types::ModeKind>,
     review_base_branch: Option<String>,
     known_collab_agents: HashMap<ThreadId, CollabAgentStatusEntry>,
     pending_user_input: Option<PendingUserInputRequest>,
@@ -59,13 +62,18 @@ impl ActorState {
         &self.latest_usage
     }
 
-    pub(super) fn set_collaboration_mode_kind(&mut self, kind: ModeKind) {
+    pub(super) fn set_collaboration_mode_kind(
+        &mut self,
+        kind: codex_protocol::config_types::ModeKind,
+    ) {
         self.active_collaboration_mode_kind = Some(kind);
     }
 
-    pub(super) fn collaboration_mode_kind_or_default(&self) -> ModeKind {
+    pub(super) fn collaboration_mode_kind_or_default(
+        &self,
+    ) -> codex_protocol::config_types::ModeKind {
         self.active_collaboration_mode_kind
-            .unwrap_or(ModeKind::Default)
+            .unwrap_or(codex_protocol::config_types::ModeKind::Default)
     }
 
     pub(super) fn review_base_branch(&self) -> Option<&str> {
@@ -159,67 +167,37 @@ impl ActorState {
         }
     }
 
-    pub(super) fn update_from_event(&mut self, msg: &EventMsg) {
-        self.update_known_collab_agents(msg);
-        self.update_known_collaboration_mode(msg);
-        self.update_latest_usage(msg);
-    }
-
-    fn update_latest_usage(&mut self, msg: &EventMsg) {
-        if let EventMsg::TokenCount(event) = msg {
-            self.set_latest_usage(event.info.clone(), event.rate_limits.clone());
+    pub(super) fn apply_event_updates(&mut self, updates: Vec<ActorStateUpdate>) {
+        for update in updates {
+            self.apply_event_update(update);
         }
     }
 
-    fn update_known_collaboration_mode(&mut self, msg: &EventMsg) {
-        if let EventMsg::TurnStarted(event) = msg {
-            self.set_collaboration_mode_kind(event.collaboration_mode_kind);
-        }
-    }
-
-    fn update_known_collab_agents(&mut self, msg: &EventMsg) {
-        match msg {
-            EventMsg::CollabAgentSpawnEnd(event) => {
-                if let Some(thread_id) = event.new_thread_id.as_ref() {
-                    self.remember_collab_agent(
-                        *thread_id,
-                        event.new_agent_nickname.clone(),
-                        event.new_agent_role.clone(),
-                        event.status.clone(),
-                    );
+    fn apply_event_update(&mut self, update: ActorStateUpdate) {
+        match update {
+            ActorStateUpdate::LatestUsage { info, rate_limits } => {
+                self.set_latest_usage(info, rate_limits);
+            }
+            ActorStateUpdate::CollaborationMode(kind) => {
+                self.set_collaboration_mode_kind(kind);
+            }
+            ActorStateUpdate::RememberCollabAgent(update) => {
+                let ActorCollabAgentUpdate {
+                    thread_id,
+                    agent_nickname,
+                    agent_role,
+                    status,
+                } = update;
+                self.remember_collab_agent(thread_id, agent_nickname, agent_role, status);
+            }
+            ActorStateUpdate::RememberCollabAgentEntries(entries) => {
+                for entry in entries {
+                    self.remember_collab_agent_entry(entry);
                 }
             }
-            EventMsg::CollabAgentInteractionEnd(event) => {
-                self.remember_collab_agent(
-                    event.receiver_thread_id,
-                    event.receiver_agent_nickname.clone(),
-                    event.receiver_agent_role.clone(),
-                    event.status.clone(),
-                );
+            ActorStateUpdate::RemoveCollabAgent(thread_id) => {
+                self.remove_collab_agent(&thread_id);
             }
-            EventMsg::CollabWaitingEnd(event) => {
-                if !event.agent_statuses.is_empty() {
-                    for entry in &event.agent_statuses {
-                        self.remember_collab_agent_entry(entry.clone());
-                    }
-                } else {
-                    for (thread_id, status) in &event.statuses {
-                        self.remember_collab_agent(*thread_id, None, None, status.clone());
-                    }
-                }
-            }
-            EventMsg::CollabResumeEnd(event) => {
-                self.remember_collab_agent(
-                    event.receiver_thread_id,
-                    event.receiver_agent_nickname.clone(),
-                    event.receiver_agent_role.clone(),
-                    event.status.clone(),
-                );
-            }
-            EventMsg::CollabCloseEnd(event) => {
-                self.remove_collab_agent(&event.receiver_thread_id);
-            }
-            _ => {}
         }
     }
 }

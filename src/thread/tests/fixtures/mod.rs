@@ -69,6 +69,7 @@ pub(super) use codex_protocol::user_input::UserInput;
 pub(super) use itertools::Itertools;
 pub(super) use tokio::sync::{Mutex, Notify, mpsc, mpsc::UnboundedSender};
 
+pub(super) use crate::boundary::tool_call::ActiveCommand;
 pub(super) use crate::guardian::{guardian_action_summary, guardian_assessment_content};
 pub(super) use crate::permission::parse_command_tool_call;
 pub(super) use crate::session_mode::{
@@ -86,6 +87,5 @@ pub(super) use crate::thread::deps::{
 };
 pub(super) use crate::thread::model_picker::filter_model_presets_for_picker;
 pub(super) use crate::thread::submission::{PromptState, SubmissionState};
-pub(super) use crate::thread::tool_calls::ActiveCommand;
 pub(super) use crate::thread::{INIT_COMMAND_PROMPT, Thread, ThreadMessage};
 pub(super) use crate::user_input::REQUEST_USER_INPUT_OTHER_OPTION_LABEL;

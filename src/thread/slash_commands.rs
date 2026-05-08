@@ -2,19 +2,19 @@ use agent_client_protocol::{
     Error,
     schema::{AvailableCommand, AvailableCommandInput, SessionModeId, UnstructuredCommandInput},
 };
-use codex_core::review_prompts::user_facing_hint;
 use codex_features::Feature;
 use codex_protocol::{
     config_types::{ModeKind, ServiceTier},
-    protocol::{
-        Op, ReviewRequest, ReviewTarget, ThreadGoal, ThreadGoalStatus,
-        validate_thread_goal_objective,
-    },
+    protocol::{Op, ReviewTarget, ThreadGoal, ThreadGoalStatus, validate_thread_goal_objective},
     user_input::UserInput,
 };
 
-use crate::display::{
-    format_thread_goal_status_label, format_thread_goal_summary, format_thread_goal_usage_summary,
+use crate::{
+    boundary::op,
+    display::{
+        format_thread_goal_status_label, format_thread_goal_summary,
+        format_thread_goal_usage_summary,
+    },
 };
 
 use super::{
@@ -120,14 +120,14 @@ impl<A: Auth> ThreadActor<A> {
             extract_slash_command(&items).map(|(name, rest)| (name.to_string(), rest.to_string()))
         else {
             return Ok(PromptSubmission::Submit {
-                op: Box::new(user_input_op(items)),
+                op: Box::new(op::user_input(items)),
             });
         };
 
         let op = match name.as_str() {
-            "compact" => Op::Compact,
-            "undo" => Op::ThreadRollback { num_turns: 1 },
-            "init" => user_input_op(vec![UserInput::Text {
+            "compact" => op::compact(),
+            "undo" => op::undo_last_turn(),
+            "init" => op::user_input(vec![UserInput::Text {
                 text: INIT_COMMAND_PROMPT.into(),
                 text_elements: vec![],
             }]),
@@ -140,12 +140,12 @@ impl<A: Auth> ThreadActor<A> {
                         instructions: instructions.to_owned(),
                     }
                 };
-                review_op(target)
+                op::review(target)
             }
-            "review-branch" if !rest.is_empty() => review_op(ReviewTarget::BaseBranch {
+            "review-branch" if !rest.is_empty() => op::review(ReviewTarget::BaseBranch {
                 branch: rest.trim().to_owned(),
             }),
-            "review-commit" if !rest.is_empty() => review_op(ReviewTarget::Commit {
+            "review-commit" if !rest.is_empty() => op::review(ReviewTarget::Commit {
                 sha: rest.trim().to_owned(),
                 title: None,
             }),
@@ -214,13 +214,13 @@ impl<A: Auth> ThreadActor<A> {
                 self.apply_collaboration_mode_kind(ModeKind::Plan).await?;
                 self.maybe_emit_config_options_update().await;
                 replace_first_text_item(&mut items, trimmed);
-                user_input_op(items)
+                op::user_input(items)
             }
             "logout" => {
                 self.auth.logout().await?;
                 return Err(Error::auth_required());
             }
-            _ => user_input_op(items),
+            _ => op::user_input(items),
         };
 
         Ok(PromptSubmission::Submit { op: Box::new(op) })
@@ -353,24 +353,6 @@ impl<A: Auth> ThreadActor<A> {
             .await?;
 
         Ok(format_thread_goal_set_message(&goal))
-    }
-}
-
-fn review_op(target: ReviewTarget) -> Op {
-    Op::Review {
-        review_request: ReviewRequest {
-            user_facing_hint: Some(user_facing_hint(&target)),
-            target,
-        },
-    }
-}
-
-fn user_input_op(items: Vec<UserInput>) -> Op {
-    Op::UserInput {
-        items,
-        final_output_json_schema: None,
-        environments: None,
-        responsesapi_client_metadata: None,
     }
 }
 

@@ -7,21 +7,19 @@ use std::{
 use agent_client_protocol::{
     Client, ConnectionTo, Error,
     schema::{
-        ClientCapabilities, ContentChunk, Implementation, Meta, PermissionOption, Plan, PlanEntry,
-        PlanEntryPriority, PlanEntryStatus, RequestPermissionRequest, RequestPermissionResponse,
-        SessionId, SessionNotification, SessionUpdate, ToolCall, ToolCallId, ToolCallStatus,
-        ToolCallUpdate, ToolCallUpdateFields, ToolKind,
+        ClientCapabilities, Implementation, RequestPermissionRequest, RequestPermissionResponse,
+        SessionId, SessionNotification, SessionUpdate,
     },
 };
-use codex_protocol::plan_tool::{PlanItemArg, StepStatus};
 use tracing::error;
 
-use super::{
-    DISABLE_TERMINAL_OUTPUT, ENABLE_EXPERIMENTAL_TERMINAL_OUTPUT, tool_calls::ActiveCommand,
+use crate::boundary::{
+    compat,
+    effect::{BridgeEffect, PermissionRequestSeed},
+    tool_call::ActiveCommand,
 };
 
-const CODEX_ACP_META_KEY: &str = "codex_acp";
-const WARNING_META_KIND: &str = "warning";
+use super::{DISABLE_TERMINAL_OUTPUT, ENABLE_EXPERIMENTAL_TERMINAL_OUTPUT};
 
 /// Abstraction over the ACP connection for sending notifications and requests
 /// back to the client. This replaces the old `Client` trait usage.
@@ -90,15 +88,7 @@ impl SessionClient {
     fn is_zed_client(&self) -> bool {
         {
             let client_info = lock_client_state(&self.client_info, "client info");
-            let Some(client_info) = client_info.as_ref() else {
-                return false;
-            };
-            let title_is_zed = client_info
-                .title
-                .as_deref()
-                .is_some_and(|title| title.to_ascii_lowercase().contains("zed"));
-
-            client_info.name.eq_ignore_ascii_case("zed") || title_is_zed
+            compat::implementation_is_zed(client_info.as_ref())
         }
     }
 
@@ -110,10 +100,7 @@ impl SessionClient {
         let client_supports_terminal_output = {
             let client_capabilities =
                 lock_client_state(&self.client_capabilities, "client capabilities");
-            client_capabilities.meta.as_ref().is_some_and(|v| {
-                v.get("terminal_output")
-                    .is_some_and(|v| v.as_bool().unwrap_or_default())
-            })
+            compat::client_advertises_terminal_output(client_capabilities.meta.as_ref())
         };
 
         if !client_supports_terminal_output {
@@ -134,101 +121,15 @@ impl SessionClient {
         }
     }
 
-    pub(super) fn send_user_message(&self, text: impl Into<String>) {
-        self.send_notification(SessionUpdate::UserMessageChunk(ContentChunk::new(
-            text.into().into(),
-        )));
+    pub(super) fn request_permission_effect(&self, request: PermissionRequestSeed) -> BridgeEffect {
+        BridgeEffect::request_permission(self.session_id.clone(), request)
     }
 
-    pub(super) fn send_agent_text(&self, text: impl Into<String>) {
-        self.send_notification(SessionUpdate::AgentMessageChunk(ContentChunk::new(
-            text.into().into(),
-        )));
-    }
-
-    pub(super) fn send_agent_warning(&self, text: impl Into<String>) {
-        self.send_notification(SessionUpdate::AgentMessageChunk(
-            ContentChunk::new(text.into().into()).meta(Meta::from_iter([(
-                CODEX_ACP_META_KEY.to_string(),
-                serde_json::json!({ "kind": WARNING_META_KIND }),
-            )])),
-        ));
-    }
-
-    pub(super) fn send_agent_thought(&self, text: impl Into<String>) {
-        self.send_notification(SessionUpdate::AgentThoughtChunk(ContentChunk::new(
-            text.into().into(),
-        )));
-    }
-
-    pub(super) fn send_tool_call(&self, tool_call: ToolCall) {
-        self.send_notification(SessionUpdate::ToolCall(tool_call));
-    }
-
-    pub(super) fn send_tool_call_update(&self, update: ToolCallUpdate) {
-        self.send_notification(SessionUpdate::ToolCallUpdate(update));
-    }
-
-    /// Send a completed tool call (used for replay and simple cases)
-    pub(super) fn send_completed_tool_call(
+    pub(super) async fn request_permission_request(
         &self,
-        call_id: impl Into<ToolCallId>,
-        title: impl Into<String>,
-        kind: ToolKind,
-        raw_input: Option<serde_json::Value>,
-    ) {
-        let mut tool_call = ToolCall::new(call_id, title)
-            .kind(kind)
-            .status(ToolCallStatus::Completed);
-        if let Some(input) = raw_input {
-            tool_call = tool_call.raw_input(input);
-        }
-        self.send_tool_call(tool_call);
-    }
-
-    /// Send a tool call completion update (used for replay)
-    pub(super) fn send_tool_call_completed(
-        &self,
-        call_id: impl Into<ToolCallId>,
-        raw_output: Option<serde_json::Value>,
-    ) {
-        let mut fields = ToolCallUpdateFields::new().status(ToolCallStatus::Completed);
-        if let Some(output) = raw_output {
-            fields = fields.raw_output(output);
-        }
-        self.send_tool_call_update(ToolCallUpdate::new(call_id, fields));
-    }
-
-    pub(super) fn update_plan(&self, plan: Vec<PlanItemArg>) {
-        self.send_notification(SessionUpdate::Plan(Plan::new(
-            plan.into_iter()
-                .map(|entry| {
-                    PlanEntry::new(
-                        entry.step,
-                        PlanEntryPriority::Medium,
-                        match entry.status {
-                            StepStatus::Pending => PlanEntryStatus::Pending,
-                            StepStatus::InProgress => PlanEntryStatus::InProgress,
-                            StepStatus::Completed => PlanEntryStatus::Completed,
-                        },
-                    )
-                })
-                .collect(),
-        )));
-    }
-
-    pub(super) async fn request_permission(
-        &self,
-        tool_call: ToolCallUpdate,
-        options: Vec<PermissionOption>,
+        request: RequestPermissionRequest,
     ) -> Result<RequestPermissionResponse, Error> {
-        self.client
-            .request_permission(RequestPermissionRequest::new(
-                self.session_id.clone(),
-                tool_call,
-                options,
-            ))
-            .await
+        self.client.request_permission(request).await
     }
 }
 

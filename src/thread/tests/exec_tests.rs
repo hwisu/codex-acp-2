@@ -1,5 +1,7 @@
 use super::fixtures::*;
 
+use crate::boundary::constants::meta;
+
 fn poison_mutex<T>(mutex: &std::sync::Mutex<T>) {
     let previous_hook = std::panic::take_hook();
     std::panic::set_hook(Box::new(|_| {}));
@@ -13,22 +15,22 @@ fn poison_mutex<T>(mutex: &std::sync::Mutex<T>) {
 
 fn terminal_output_capabilities() -> ClientCapabilities {
     ClientCapabilities::new().meta(Meta::from_iter([(
-        "terminal_output".to_string(),
+        meta::TERMINAL_OUTPUT_CAPABILITY.to_string(),
         serde_json::json!(true),
     )]))
 }
 
 fn tool_call_default_open(meta: Option<&Meta>) -> Option<bool> {
-    meta.and_then(|meta| meta.get("codex_acp"))
-        .and_then(|value| value.get("toolCallOutput"))
-        .and_then(|value| value.get("defaultOpen"))
+    meta.and_then(|meta| meta.get(meta::CODEX_ACP))
+        .and_then(|value| value.get(meta::TOOL_CALL_OUTPUT))
+        .and_then(|value| value.get(meta::TOOL_CALL_OUTPUT_DEFAULT_OPEN))
         .and_then(serde_json::Value::as_bool)
 }
 
 fn tool_call_output_reason(meta: Option<&Meta>) -> Option<&str> {
-    meta.and_then(|meta| meta.get("codex_acp"))
-        .and_then(|value| value.get("toolCallOutput"))
-        .and_then(|value| value.get("reason"))
+    meta.and_then(|meta| meta.get(meta::CODEX_ACP))
+        .and_then(|value| value.get(meta::TOOL_CALL_OUTPUT))
+        .and_then(|value| value.get(meta::TOOL_CALL_OUTPUT_REASON))
         .and_then(serde_json::Value::as_str)
 }
 
@@ -64,6 +66,15 @@ fn rendered_output_text_for_extension(extension: Option<&str>) -> String {
         })) => text,
         content => panic!("expected text content, got {content:?}"),
     }
+}
+
+#[test]
+fn submission_exec_raw_json_goes_through_boundary_helpers() {
+    let source = include_str!("../submission_exec.rs");
+    assert!(
+        !source.contains("serde_json::json!(&event)"),
+        "submission_exec.rs should build raw payloads through boundary::raw"
+    );
 }
 
 #[test]
@@ -218,7 +229,10 @@ async fn test_zed_client_keeps_terminal_meta_streaming() -> anyhow::Result<()> {
     let session_id = SessionId::new("test");
     let client = Arc::new(StubClient::new());
     let client_capabilities = Arc::new(std::sync::Mutex::new(ClientCapabilities::new().meta(
-        Meta::from_iter([("terminal_output".to_string(), serde_json::json!(true))]),
+        Meta::from_iter([(
+            meta::TERMINAL_OUTPUT_CAPABILITY.to_string(),
+            serde_json::json!(true),
+        )]),
     )));
     let client_info = Arc::new(std::sync::Mutex::new(Some(
         Implementation::new("zed", "0.0.0").title("Zed"),
@@ -232,51 +246,57 @@ async fn test_zed_client_keeps_terminal_meta_streaming() -> anyhow::Result<()> {
         PromptState::new("submission-id".to_string(), thread, message_tx, response_tx);
     let cwd = std::env::current_dir()?;
 
-    prompt_state.exec_command_begin(
-        &session_client,
-        ExecCommandBeginEvent {
-            call_id: "call-id".to_string(),
-            process_id: None,
-            turn_id: "turn-id".to_string(),
-            started_at_ms: 0,
-            command: vec!["echo".to_string(), "hello".to_string()],
-            cwd: cwd.clone().try_into()?,
-            parsed_cmd: vec![ParsedCommand::Unknown {
-                cmd: "echo hello".to_string(),
-            }],
-            source: ExecCommandSource::default(),
-            interaction_input: None,
-        },
-    );
-    prompt_state.exec_command_output_delta(
-        &session_client,
-        ExecCommandOutputDeltaEvent {
-            call_id: "call-id".to_string(),
-            chunk: b"hello\n".to_vec(),
-            stream: codex_protocol::protocol::ExecOutputStream::Stdout,
-        },
-    );
-    prompt_state.exec_command_end(
-        &session_client,
-        ExecCommandEndEvent {
-            call_id: "call-id".to_string(),
-            process_id: None,
-            turn_id: "turn-id".to_string(),
-            completed_at_ms: 0,
-            command: vec!["echo".to_string(), "hello".to_string()],
-            cwd: cwd.try_into()?,
-            parsed_cmd: vec![],
-            source: ExecCommandSource::default(),
-            interaction_input: None,
-            stdout: "hello\n".to_string(),
-            stderr: String::new(),
-            aggregated_output: "hello\n".to_string(),
-            exit_code: 0,
-            duration: Duration::from_millis(1),
-            formatted_output: "hello\n".to_string(),
-            status: ExecCommandStatus::Completed,
-        },
-    );
+    prompt_state
+        .handle_event(
+            &session_client,
+            EventMsg::ExecCommandBegin(ExecCommandBeginEvent {
+                call_id: "call-id".to_string(),
+                process_id: None,
+                turn_id: "turn-id".to_string(),
+                started_at_ms: 0,
+                command: vec!["echo".to_string(), "hello".to_string()],
+                cwd: cwd.clone().try_into()?,
+                parsed_cmd: vec![ParsedCommand::Unknown {
+                    cmd: "echo hello".to_string(),
+                }],
+                source: ExecCommandSource::default(),
+                interaction_input: None,
+            }),
+        )
+        .await;
+    prompt_state
+        .handle_event(
+            &session_client,
+            EventMsg::ExecCommandOutputDelta(ExecCommandOutputDeltaEvent {
+                call_id: "call-id".to_string(),
+                chunk: b"hello\n".to_vec(),
+                stream: codex_protocol::protocol::ExecOutputStream::Stdout,
+            }),
+        )
+        .await;
+    prompt_state
+        .handle_event(
+            &session_client,
+            EventMsg::ExecCommandEnd(ExecCommandEndEvent {
+                call_id: "call-id".to_string(),
+                process_id: None,
+                turn_id: "turn-id".to_string(),
+                completed_at_ms: 0,
+                command: vec!["echo".to_string(), "hello".to_string()],
+                cwd: cwd.try_into()?,
+                parsed_cmd: vec![],
+                source: ExecCommandSource::default(),
+                interaction_input: None,
+                stdout: "hello\n".to_string(),
+                stderr: String::new(),
+                aggregated_output: "hello\n".to_string(),
+                exit_code: 0,
+                duration: Duration::from_millis(1),
+                formatted_output: "hello\n".to_string(),
+                status: ExecCommandStatus::Completed,
+            }),
+        )
+        .await;
 
     let tool_call = client
         .tool_calls()
@@ -293,7 +313,7 @@ async fn test_zed_client_keeps_terminal_meta_streaming() -> anyhow::Result<()> {
         tool_call
             .meta
             .as_ref()
-            .and_then(|meta| meta.get("terminal_info"))
+            .and_then(|meta| meta.get(meta::TERMINAL_INFO))
             .and_then(|value| value.get("terminal_id"))
             .and_then(serde_json::Value::as_str),
         Some("call-id")
@@ -307,7 +327,7 @@ async fn test_zed_client_keeps_terminal_meta_streaming() -> anyhow::Result<()> {
         streaming_update
             .meta
             .as_ref()
-            .and_then(|meta| meta.get("terminal_output"))
+            .and_then(|meta| meta.get(meta::TERMINAL_OUTPUT))
             .and_then(|value| value.get("terminal_id"))
             .and_then(serde_json::Value::as_str),
         Some("call-id")
@@ -326,7 +346,7 @@ async fn test_zed_client_keeps_terminal_meta_streaming() -> anyhow::Result<()> {
         completion_update
             .meta
             .as_ref()
-            .and_then(|meta| meta.get("terminal_exit"))
+            .and_then(|meta| meta.get(meta::TERMINAL_EXIT))
             .and_then(|value| value.get("terminal_id"))
             .and_then(serde_json::Value::as_str),
         Some("call-id")
@@ -340,7 +360,10 @@ async fn test_zed_client_replays_completion_output_without_delta() -> anyhow::Re
     let session_id = SessionId::new("test");
     let client = Arc::new(StubClient::new());
     let client_capabilities = Arc::new(std::sync::Mutex::new(ClientCapabilities::new().meta(
-        Meta::from_iter([("terminal_output".to_string(), serde_json::json!(true))]),
+        Meta::from_iter([(
+            meta::TERMINAL_OUTPUT_CAPABILITY.to_string(),
+            serde_json::json!(true),
+        )]),
     )));
     let client_info = Arc::new(std::sync::Mutex::new(Some(
         Implementation::new("zed", "0.0.0").title("Zed"),
@@ -354,43 +377,47 @@ async fn test_zed_client_replays_completion_output_without_delta() -> anyhow::Re
         PromptState::new("submission-id".to_string(), thread, message_tx, response_tx);
     let cwd = std::env::current_dir()?;
 
-    prompt_state.exec_command_begin(
-        &session_client,
-        ExecCommandBeginEvent {
-            call_id: "call-id".to_string(),
-            process_id: None,
-            turn_id: "turn-id".to_string(),
-            started_at_ms: 0,
-            command: vec!["date".to_string()],
-            cwd: cwd.try_into()?,
-            parsed_cmd: vec![ParsedCommand::Unknown {
-                cmd: "date".to_string(),
-            }],
-            source: ExecCommandSource::default(),
-            interaction_input: None,
-        },
-    );
-    prompt_state.exec_command_end(
-        &session_client,
-        ExecCommandEndEvent {
-            call_id: "call-id".to_string(),
-            process_id: None,
-            turn_id: "turn-id".to_string(),
-            completed_at_ms: 0,
-            command: vec!["date".to_string()],
-            cwd: std::env::current_dir()?.try_into()?,
-            parsed_cmd: vec![],
-            source: ExecCommandSource::default(),
-            interaction_input: None,
-            stdout: "hello\n".to_string(),
-            stderr: String::new(),
-            aggregated_output: "hello\n".to_string(),
-            exit_code: 0,
-            duration: Duration::from_millis(1),
-            formatted_output: "hello\n".to_string(),
-            status: ExecCommandStatus::Completed,
-        },
-    );
+    prompt_state
+        .handle_event(
+            &session_client,
+            EventMsg::ExecCommandBegin(ExecCommandBeginEvent {
+                call_id: "call-id".to_string(),
+                process_id: None,
+                turn_id: "turn-id".to_string(),
+                started_at_ms: 0,
+                command: vec!["date".to_string()],
+                cwd: cwd.try_into()?,
+                parsed_cmd: vec![ParsedCommand::Unknown {
+                    cmd: "date".to_string(),
+                }],
+                source: ExecCommandSource::default(),
+                interaction_input: None,
+            }),
+        )
+        .await;
+    prompt_state
+        .handle_event(
+            &session_client,
+            EventMsg::ExecCommandEnd(ExecCommandEndEvent {
+                call_id: "call-id".to_string(),
+                process_id: None,
+                turn_id: "turn-id".to_string(),
+                completed_at_ms: 0,
+                command: vec!["date".to_string()],
+                cwd: std::env::current_dir()?.try_into()?,
+                parsed_cmd: vec![],
+                source: ExecCommandSource::default(),
+                interaction_input: None,
+                stdout: "hello\n".to_string(),
+                stderr: String::new(),
+                aggregated_output: "hello\n".to_string(),
+                exit_code: 0,
+                duration: Duration::from_millis(1),
+                formatted_output: "hello\n".to_string(),
+                status: ExecCommandStatus::Completed,
+            }),
+        )
+        .await;
 
     let tool_updates = client.tool_call_updates();
 
@@ -403,7 +430,7 @@ async fn test_zed_client_replays_completion_output_without_delta() -> anyhow::Re
         replayed_output
             .meta
             .as_ref()
-            .and_then(|meta| meta.get("terminal_output"))
+            .and_then(|meta| meta.get(meta::TERMINAL_OUTPUT))
             .and_then(|value| value.get("data"))
             .and_then(serde_json::Value::as_str),
         Some("hello\n")
@@ -422,7 +449,7 @@ async fn test_zed_client_replays_completion_output_without_delta() -> anyhow::Re
         completion_update
             .meta
             .as_ref()
-            .and_then(|meta| meta.get("terminal_exit"))
+            .and_then(|meta| meta.get(meta::TERMINAL_EXIT))
             .and_then(|value| value.get("terminal_id"))
             .and_then(serde_json::Value::as_str),
         Some("call-id")
@@ -436,7 +463,10 @@ async fn test_terminal_capability_falls_back_to_content_snapshots() -> anyhow::R
     let session_id = SessionId::new("test");
     let client = Arc::new(StubClient::new());
     let client_capabilities = Arc::new(std::sync::Mutex::new(ClientCapabilities::new().meta(
-        Meta::from_iter([("terminal_output".to_string(), serde_json::json!(true))]),
+        Meta::from_iter([(
+            meta::TERMINAL_OUTPUT_CAPABILITY.to_string(),
+            serde_json::json!(true),
+        )]),
     )));
     let session_client = SessionClient::with_client(
         session_id,
@@ -451,51 +481,57 @@ async fn test_terminal_capability_falls_back_to_content_snapshots() -> anyhow::R
         PromptState::new("submission-id".to_string(), thread, message_tx, response_tx);
     let cwd = std::env::current_dir()?;
 
-    prompt_state.exec_command_begin(
-        &session_client,
-        ExecCommandBeginEvent {
-            call_id: "call-id".to_string(),
-            process_id: None,
-            turn_id: "turn-id".to_string(),
-            started_at_ms: 0,
-            command: vec!["echo".to_string(), "hello".to_string()],
-            cwd: cwd.clone().try_into()?,
-            parsed_cmd: vec![ParsedCommand::Unknown {
-                cmd: "echo hello".to_string(),
-            }],
-            source: ExecCommandSource::default(),
-            interaction_input: None,
-        },
-    );
-    prompt_state.exec_command_output_delta(
-        &session_client,
-        ExecCommandOutputDeltaEvent {
-            call_id: "call-id".to_string(),
-            chunk: b"hello\n".to_vec(),
-            stream: codex_protocol::protocol::ExecOutputStream::Stdout,
-        },
-    );
-    prompt_state.exec_command_end(
-        &session_client,
-        ExecCommandEndEvent {
-            call_id: "call-id".to_string(),
-            process_id: None,
-            turn_id: "turn-id".to_string(),
-            completed_at_ms: 0,
-            command: vec!["echo".to_string(), "hello".to_string()],
-            cwd: cwd.try_into()?,
-            parsed_cmd: vec![],
-            source: ExecCommandSource::default(),
-            interaction_input: None,
-            stdout: "hello\n".to_string(),
-            stderr: String::new(),
-            aggregated_output: "hello\n".to_string(),
-            exit_code: 0,
-            duration: Duration::from_millis(1),
-            formatted_output: "hello\n".to_string(),
-            status: ExecCommandStatus::Completed,
-        },
-    );
+    prompt_state
+        .handle_event(
+            &session_client,
+            EventMsg::ExecCommandBegin(ExecCommandBeginEvent {
+                call_id: "call-id".to_string(),
+                process_id: None,
+                turn_id: "turn-id".to_string(),
+                started_at_ms: 0,
+                command: vec!["echo".to_string(), "hello".to_string()],
+                cwd: cwd.clone().try_into()?,
+                parsed_cmd: vec![ParsedCommand::Unknown {
+                    cmd: "echo hello".to_string(),
+                }],
+                source: ExecCommandSource::default(),
+                interaction_input: None,
+            }),
+        )
+        .await;
+    prompt_state
+        .handle_event(
+            &session_client,
+            EventMsg::ExecCommandOutputDelta(ExecCommandOutputDeltaEvent {
+                call_id: "call-id".to_string(),
+                chunk: b"hello\n".to_vec(),
+                stream: codex_protocol::protocol::ExecOutputStream::Stdout,
+            }),
+        )
+        .await;
+    prompt_state
+        .handle_event(
+            &session_client,
+            EventMsg::ExecCommandEnd(ExecCommandEndEvent {
+                call_id: "call-id".to_string(),
+                process_id: None,
+                turn_id: "turn-id".to_string(),
+                completed_at_ms: 0,
+                command: vec!["echo".to_string(), "hello".to_string()],
+                cwd: cwd.try_into()?,
+                parsed_cmd: vec![],
+                source: ExecCommandSource::default(),
+                interaction_input: None,
+                stdout: "hello\n".to_string(),
+                stderr: String::new(),
+                aggregated_output: "hello\n".to_string(),
+                exit_code: 0,
+                duration: Duration::from_millis(1),
+                formatted_output: "hello\n".to_string(),
+                status: ExecCommandStatus::Completed,
+            }),
+        )
+        .await;
 
     let tool_call = client
         .tool_calls()
@@ -552,51 +588,57 @@ async fn test_non_terminal_exec_completion_includes_output_snapshot() -> anyhow:
         PromptState::new("submission-id".to_string(), thread, message_tx, response_tx);
     let cwd = std::env::current_dir()?;
 
-    prompt_state.exec_command_begin(
-        &session_client,
-        ExecCommandBeginEvent {
-            call_id: "call-id".to_string(),
-            process_id: None,
-            turn_id: "turn-id".to_string(),
-            started_at_ms: 0,
-            command: vec!["echo".to_string(), "hello".to_string()],
-            cwd: cwd.clone().try_into()?,
-            parsed_cmd: vec![ParsedCommand::Unknown {
-                cmd: "echo hello".to_string(),
-            }],
-            source: ExecCommandSource::default(),
-            interaction_input: None,
-        },
-    );
-    prompt_state.exec_command_output_delta(
-        &session_client,
-        ExecCommandOutputDeltaEvent {
-            call_id: "call-id".to_string(),
-            chunk: b"hello\n".to_vec(),
-            stream: codex_protocol::protocol::ExecOutputStream::Stdout,
-        },
-    );
-    prompt_state.exec_command_end(
-        &session_client,
-        ExecCommandEndEvent {
-            call_id: "call-id".to_string(),
-            process_id: None,
-            turn_id: "turn-id".to_string(),
-            completed_at_ms: 0,
-            command: vec!["echo".to_string(), "hello".to_string()],
-            cwd: cwd.try_into()?,
-            parsed_cmd: vec![],
-            source: ExecCommandSource::default(),
-            interaction_input: None,
-            stdout: "hello\n".to_string(),
-            stderr: String::new(),
-            aggregated_output: "hello\n".to_string(),
-            exit_code: 0,
-            duration: Duration::from_millis(1),
-            formatted_output: "hello\n".to_string(),
-            status: ExecCommandStatus::Completed,
-        },
-    );
+    prompt_state
+        .handle_event(
+            &session_client,
+            EventMsg::ExecCommandBegin(ExecCommandBeginEvent {
+                call_id: "call-id".to_string(),
+                process_id: None,
+                turn_id: "turn-id".to_string(),
+                started_at_ms: 0,
+                command: vec!["echo".to_string(), "hello".to_string()],
+                cwd: cwd.clone().try_into()?,
+                parsed_cmd: vec![ParsedCommand::Unknown {
+                    cmd: "echo hello".to_string(),
+                }],
+                source: ExecCommandSource::default(),
+                interaction_input: None,
+            }),
+        )
+        .await;
+    prompt_state
+        .handle_event(
+            &session_client,
+            EventMsg::ExecCommandOutputDelta(ExecCommandOutputDeltaEvent {
+                call_id: "call-id".to_string(),
+                chunk: b"hello\n".to_vec(),
+                stream: codex_protocol::protocol::ExecOutputStream::Stdout,
+            }),
+        )
+        .await;
+    prompt_state
+        .handle_event(
+            &session_client,
+            EventMsg::ExecCommandEnd(ExecCommandEndEvent {
+                call_id: "call-id".to_string(),
+                process_id: None,
+                turn_id: "turn-id".to_string(),
+                completed_at_ms: 0,
+                command: vec!["echo".to_string(), "hello".to_string()],
+                cwd: cwd.try_into()?,
+                parsed_cmd: vec![],
+                source: ExecCommandSource::default(),
+                interaction_input: None,
+                stdout: "hello\n".to_string(),
+                stderr: String::new(),
+                aggregated_output: "hello\n".to_string(),
+                exit_code: 0,
+                duration: Duration::from_millis(1),
+                formatted_output: "hello\n".to_string(),
+                status: ExecCommandStatus::Completed,
+            }),
+        )
+        .await;
 
     let tool_updates = client.tool_call_updates();
 
@@ -666,43 +708,47 @@ async fn test_large_exec_output_is_folded_by_default() -> anyhow::Result<()> {
         .join("\n")
         + "\n";
 
-    prompt_state.exec_command_begin(
-        &session_client,
-        ExecCommandBeginEvent {
-            call_id: "call-id".to_string(),
-            process_id: None,
-            turn_id: "turn-id".to_string(),
-            started_at_ms: 0,
-            command: vec!["printf".to_string(), "lots".to_string()],
-            cwd: cwd.clone().try_into()?,
-            parsed_cmd: vec![ParsedCommand::Unknown {
-                cmd: "printf lots".to_string(),
-            }],
-            source: ExecCommandSource::default(),
-            interaction_input: None,
-        },
-    );
-    prompt_state.exec_command_end(
-        &session_client,
-        ExecCommandEndEvent {
-            call_id: "call-id".to_string(),
-            process_id: None,
-            turn_id: "turn-id".to_string(),
-            completed_at_ms: 0,
-            command: vec!["printf".to_string(), "lots".to_string()],
-            cwd: cwd.try_into()?,
-            parsed_cmd: vec![],
-            source: ExecCommandSource::default(),
-            interaction_input: None,
-            stdout: output.clone(),
-            stderr: String::new(),
-            aggregated_output: output.clone(),
-            exit_code: 0,
-            duration: Duration::from_millis(1),
-            formatted_output: output,
-            status: ExecCommandStatus::Completed,
-        },
-    );
+    prompt_state
+        .handle_event(
+            &session_client,
+            EventMsg::ExecCommandBegin(ExecCommandBeginEvent {
+                call_id: "call-id".to_string(),
+                process_id: None,
+                turn_id: "turn-id".to_string(),
+                started_at_ms: 0,
+                command: vec!["printf".to_string(), "lots".to_string()],
+                cwd: cwd.clone().try_into()?,
+                parsed_cmd: vec![ParsedCommand::Unknown {
+                    cmd: "printf lots".to_string(),
+                }],
+                source: ExecCommandSource::default(),
+                interaction_input: None,
+            }),
+        )
+        .await;
+    prompt_state
+        .handle_event(
+            &session_client,
+            EventMsg::ExecCommandEnd(ExecCommandEndEvent {
+                call_id: "call-id".to_string(),
+                process_id: None,
+                turn_id: "turn-id".to_string(),
+                completed_at_ms: 0,
+                command: vec!["printf".to_string(), "lots".to_string()],
+                cwd: cwd.try_into()?,
+                parsed_cmd: vec![],
+                source: ExecCommandSource::default(),
+                interaction_input: None,
+                stdout: output.clone(),
+                stderr: String::new(),
+                aggregated_output: output.clone(),
+                exit_code: 0,
+                duration: Duration::from_millis(1),
+                formatted_output: output,
+                status: ExecCommandStatus::Completed,
+            }),
+        )
+        .await;
 
     let update = client
         .tool_call_updates()
@@ -733,55 +779,59 @@ async fn test_read_exec_completion_uses_canonical_rust_fence() -> anyhow::Result
     let cwd = std::env::current_dir()?;
     let read_path = PathBuf::from("src/foo.rs");
 
-    prompt_state.exec_command_begin(
-        &session_client,
-        ExecCommandBeginEvent {
-            call_id: "call-id".to_string(),
-            process_id: None,
-            turn_id: "turn-id".to_string(),
-            started_at_ms: 0,
-            command: vec![
-                "sed".to_string(),
-                "-n".to_string(),
-                "1,120p".to_string(),
-                "src/foo.rs".to_string(),
-            ],
-            cwd: cwd.clone().try_into()?,
-            parsed_cmd: vec![ParsedCommand::Read {
-                cmd: "sed -n '1,120p' src/foo.rs".to_string(),
-                name: "src/foo.rs".to_string(),
-                path: read_path,
-            }],
-            source: ExecCommandSource::default(),
-            interaction_input: None,
-        },
-    );
-    prompt_state.exec_command_end(
-        &session_client,
-        ExecCommandEndEvent {
-            call_id: "call-id".to_string(),
-            process_id: None,
-            turn_id: "turn-id".to_string(),
-            completed_at_ms: 0,
-            command: vec![
-                "sed".to_string(),
-                "-n".to_string(),
-                "1,120p".to_string(),
-                "src/foo.rs".to_string(),
-            ],
-            cwd: cwd.try_into()?,
-            parsed_cmd: vec![],
-            source: ExecCommandSource::default(),
-            interaction_input: None,
-            stdout: "fn main() {}\n".to_string(),
-            stderr: String::new(),
-            aggregated_output: "fn main() {}\n".to_string(),
-            exit_code: 0,
-            duration: Duration::from_millis(1),
-            formatted_output: "fn main() {}\n".to_string(),
-            status: ExecCommandStatus::Completed,
-        },
-    );
+    prompt_state
+        .handle_event(
+            &session_client,
+            EventMsg::ExecCommandBegin(ExecCommandBeginEvent {
+                call_id: "call-id".to_string(),
+                process_id: None,
+                turn_id: "turn-id".to_string(),
+                started_at_ms: 0,
+                command: vec![
+                    "sed".to_string(),
+                    "-n".to_string(),
+                    "1,120p".to_string(),
+                    "src/foo.rs".to_string(),
+                ],
+                cwd: cwd.clone().try_into()?,
+                parsed_cmd: vec![ParsedCommand::Read {
+                    cmd: "sed -n '1,120p' src/foo.rs".to_string(),
+                    name: "src/foo.rs".to_string(),
+                    path: read_path,
+                }],
+                source: ExecCommandSource::default(),
+                interaction_input: None,
+            }),
+        )
+        .await;
+    prompt_state
+        .handle_event(
+            &session_client,
+            EventMsg::ExecCommandEnd(ExecCommandEndEvent {
+                call_id: "call-id".to_string(),
+                process_id: None,
+                turn_id: "turn-id".to_string(),
+                completed_at_ms: 0,
+                command: vec![
+                    "sed".to_string(),
+                    "-n".to_string(),
+                    "1,120p".to_string(),
+                    "src/foo.rs".to_string(),
+                ],
+                cwd: cwd.try_into()?,
+                parsed_cmd: vec![],
+                source: ExecCommandSource::default(),
+                interaction_input: None,
+                stdout: "fn main() {}\n".to_string(),
+                stderr: String::new(),
+                aggregated_output: "fn main() {}\n".to_string(),
+                exit_code: 0,
+                duration: Duration::from_millis(1),
+                formatted_output: "fn main() {}\n".to_string(),
+                status: ExecCommandStatus::Completed,
+            }),
+        )
+        .await;
 
     let update = client
         .tool_call_updates()

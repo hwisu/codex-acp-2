@@ -6,12 +6,14 @@ use codex_core::config::set_project_trust_level;
 use codex_protocol::{
     config_types::{ModeKind, TrustLevel},
     models::ActivePermissionProfile,
-    protocol::Op,
 };
 
-use crate::session_mode::{
-    APPROVAL_PRESETS, active_profile_id_for_session_mode, current_session_mode_id,
-    mode_trusts_project,
+use crate::{
+    boundary::op,
+    session_mode::{
+        APPROVAL_PRESETS, active_profile_id_for_session_mode, current_session_mode_id,
+        mode_trusts_project,
+    },
 };
 
 use super::{actor::ThreadActor, collaboration_mode_for_kind, deps::Auth};
@@ -67,20 +69,7 @@ impl<A: Auth> ThreadActor<A> {
             .ok_or_else(Error::invalid_params)?;
 
         self.thread
-            .submit_ok(Op::OverrideTurnContext {
-                cwd: None,
-                approval_policy: Some(preset.approval),
-                permission_profile: Some(preset.permission_profile.clone()),
-                sandbox_policy: None,
-                model: None,
-                effort: None,
-                summary: None,
-                collaboration_mode: None,
-                personality: None,
-                windows_sandbox_level: None,
-                service_tier: None,
-                approvals_reviewer: None,
-            })
+            .submit_ok(op::override_approval_preset(preset))
             .await?;
 
         self.config
@@ -122,20 +111,7 @@ impl<A: Auth> ThreadActor<A> {
                 })?;
 
         self.thread
-            .submit_ok(Op::OverrideTurnContext {
-                cwd: None,
-                approval_policy: None,
-                sandbox_policy: None,
-                model: None,
-                effort: None,
-                summary: None,
-                collaboration_mode: Some(collaboration_mode),
-                personality: None,
-                windows_sandbox_level: None,
-                service_tier: None,
-                approvals_reviewer: None,
-                permission_profile: None,
-            })
+            .submit_ok(op::override_collaboration_mode(collaboration_mode))
             .await?;
 
         self.state.set_collaboration_mode_kind(kind);

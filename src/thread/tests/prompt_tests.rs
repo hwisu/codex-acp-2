@@ -1,5 +1,10 @@
 use super::fixtures::*;
 
+use crate::boundary::{
+    constants::meta,
+    mapper::{self, LiveEventRoute, LiveForwardEvent},
+};
+
 #[tokio::test]
 async fn test_prompt() -> anyhow::Result<()> {
     let (session_id, client, _, message_tx, _handle) = setup().await?;
@@ -609,15 +614,19 @@ async fn test_warning_messages_are_tagged_with_metadata() -> anyhow::Result<()> 
     let thread = Arc::new(StubCodexThread::new());
     let (response_tx, _response_rx) = tokio::sync::oneshot::channel();
     let (message_tx, _message_rx) = tokio::sync::mpsc::unbounded_channel();
-    let _prompt_state =
+    let mut prompt_state =
         PromptState::new("submission-id".to_string(), thread, message_tx, response_tx);
 
-    PromptState::warning(
-        &session_client,
-        WarningEvent {
+    let LiveEventRoute::Forward(LiveForwardEvent::Effect(effect)) =
+        mapper::route_live_event(EventMsg::Warning(WarningEvent {
             message: "Model metadata missing".to_string(),
-        },
-    );
+        }))
+    else {
+        panic!("expected warning event to route to bridge effect");
+    };
+    prompt_state
+        .execute_bridge_effect(&session_client, *effect)
+        .await?;
 
     let warning_chunk = client
         .notifications()
@@ -636,8 +645,8 @@ async fn test_warning_messages_are_tagged_with_metadata() -> anyhow::Result<()> 
         warning_chunk
             .meta
             .as_ref()
-            .and_then(|meta| meta.get("codex_acp"))
-            .and_then(|value| value.get("kind"))
+            .and_then(|metadata| metadata.get(meta::CODEX_ACP))
+            .and_then(|value| value.get(meta::KIND))
             .and_then(serde_json::Value::as_str),
         Some("warning")
     );
@@ -657,23 +666,24 @@ async fn test_final_agent_message_is_not_dropped_after_commentary_delta() -> any
     let mut prompt_state =
         PromptState::new("submission-id".to_string(), thread, message_tx, response_tx);
 
-    prompt_state.agent_message_content_delta(
-        &session_client,
-        AgentMessageContentDeltaEvent {
-            thread_id: "thread-id".to_string(),
-            turn_id: "turn-id".to_string(),
-            item_id: "commentary-item".to_string(),
-            delta: "Checking context.\n".to_string(),
-        },
-    );
-    prompt_state.agent_message(
-        &session_client,
-        AgentMessageEvent {
-            message: "Final answer.".to_string(),
-            phase: Some(MessagePhase::FinalAnswer),
-            memory_citation: None,
-        },
-    );
+    let effect = prompt_state.agent_message_content_delta(AgentMessageContentDeltaEvent {
+        thread_id: "thread-id".to_string(),
+        turn_id: "turn-id".to_string(),
+        item_id: "commentary-item".to_string(),
+        delta: "Checking context.\n".to_string(),
+    });
+    prompt_state
+        .execute_bridge_effect(&session_client, effect)
+        .await?;
+    if let Some(effect) = prompt_state.agent_message(AgentMessageEvent {
+        message: "Final answer.".to_string(),
+        phase: Some(MessagePhase::FinalAnswer),
+        memory_citation: None,
+    }) {
+        prompt_state
+            .execute_bridge_effect(&session_client, effect)
+            .await?;
+    }
 
     assert_eq!(
         client.agent_texts(),
@@ -698,23 +708,24 @@ async fn test_final_agent_message_is_deduped_when_already_streamed() -> anyhow::
     let mut prompt_state =
         PromptState::new("submission-id".to_string(), thread, message_tx, response_tx);
 
-    prompt_state.agent_message_content_delta(
-        &session_client,
-        AgentMessageContentDeltaEvent {
-            thread_id: "thread-id".to_string(),
-            turn_id: "turn-id".to_string(),
-            item_id: "final-item".to_string(),
-            delta: "Final answer.".to_string(),
-        },
-    );
-    prompt_state.agent_message(
-        &session_client,
-        AgentMessageEvent {
-            message: "Final answer.".to_string(),
-            phase: Some(MessagePhase::FinalAnswer),
-            memory_citation: None,
-        },
-    );
+    let effect = prompt_state.agent_message_content_delta(AgentMessageContentDeltaEvent {
+        thread_id: "thread-id".to_string(),
+        turn_id: "turn-id".to_string(),
+        item_id: "final-item".to_string(),
+        delta: "Final answer.".to_string(),
+    });
+    prompt_state
+        .execute_bridge_effect(&session_client, effect)
+        .await?;
+    if let Some(effect) = prompt_state.agent_message(AgentMessageEvent {
+        message: "Final answer.".to_string(),
+        phase: Some(MessagePhase::FinalAnswer),
+        memory_citation: None,
+    }) {
+        prompt_state
+            .execute_bridge_effect(&session_client, effect)
+            .await?;
+    }
 
     assert_eq!(client.agent_texts(), vec!["Final answer.".to_string()]);
 
@@ -727,30 +738,38 @@ async fn test_usage_update_includes_token_usage_metadata() -> anyhow::Result<()>
     let client = Arc::new(StubClient::new());
     let session_client =
         SessionClient::with_client(session_id, client.clone(), Arc::default(), Arc::default());
+    let thread = Arc::new(StubCodexThread::new());
+    let (response_tx, _response_rx) = tokio::sync::oneshot::channel();
+    let (message_tx, _message_rx) = tokio::sync::mpsc::unbounded_channel();
+    let mut prompt_state =
+        PromptState::new("submission-id".to_string(), thread, message_tx, response_tx);
 
-    PromptState::token_count(
-        &session_client,
-        TokenCountEvent {
-            info: Some(TokenUsageInfo {
-                total_token_usage: codex_protocol::protocol::TokenUsage {
-                    input_tokens: 1_500,
-                    cached_input_tokens: 250,
-                    output_tokens: 350,
-                    reasoning_output_tokens: 125,
-                    total_tokens: 2_000,
-                },
-                last_token_usage: codex_protocol::protocol::TokenUsage {
-                    input_tokens: 100,
-                    cached_input_tokens: 10,
-                    output_tokens: 20,
-                    reasoning_output_tokens: 5,
-                    total_tokens: 120,
-                },
-                model_context_window: Some(128_000),
-            }),
-            rate_limits: None,
-        },
-    );
+    let effect = match mapper::route_live_event(EventMsg::TokenCount(TokenCountEvent {
+        info: Some(TokenUsageInfo {
+            total_token_usage: codex_protocol::protocol::TokenUsage {
+                input_tokens: 1_500,
+                cached_input_tokens: 250,
+                output_tokens: 350,
+                reasoning_output_tokens: 125,
+                total_tokens: 2_000,
+            },
+            last_token_usage: codex_protocol::protocol::TokenUsage {
+                input_tokens: 100,
+                cached_input_tokens: 10,
+                output_tokens: 20,
+                reasoning_output_tokens: 5,
+                total_tokens: 120,
+            },
+            model_context_window: Some(128_000),
+        }),
+        rate_limits: None,
+    })) {
+        LiveEventRoute::Forward(LiveForwardEvent::Effect(effect)) => *effect,
+        _ => panic!("expected usage effect"),
+    };
+    prompt_state
+        .execute_bridge_effect(&session_client, effect)
+        .await?;
 
     let usage_update = client
         .notifications()
@@ -767,7 +786,7 @@ async fn test_usage_update_includes_token_usage_metadata() -> anyhow::Result<()>
         usage_update
             .meta
             .as_ref()
-            .and_then(|meta| meta.get("codex_token_usage"))
+            .and_then(|metadata| metadata.get(meta::TOKEN_USAGE))
             .and_then(|value| value.get("total"))
             .and_then(|value| value.get("input_tokens"))
             .and_then(serde_json::Value::as_i64),
@@ -777,7 +796,7 @@ async fn test_usage_update_includes_token_usage_metadata() -> anyhow::Result<()>
         usage_update
             .meta
             .as_ref()
-            .and_then(|meta| meta.get("codex_token_usage"))
+            .and_then(|metadata| metadata.get(meta::TOKEN_USAGE))
             .and_then(|value| value.get("last"))
             .and_then(|value| value.get("output_tokens"))
             .and_then(serde_json::Value::as_i64),

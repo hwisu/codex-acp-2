@@ -3,15 +3,16 @@ use agent_client_protocol::{
     Error,
     schema::{ContentBlock, PromptRequest, StopReason},
 };
-use codex_protocol::{
-    protocol::Op, request_user_input::RequestUserInputEvent, user_input::UserInput,
-};
+use codex_protocol::{request_user_input::RequestUserInputEvent, user_input::UserInput};
 use itertools::Itertools;
 use tokio::sync::oneshot;
 use tracing::info;
 
-use crate::user_input::{
-    PendingUserInputRequest, parse_request_user_input_response, request_user_input_prompt_text,
+use crate::{
+    boundary::{op, session_update},
+    user_input::{
+        PendingUserInputRequest, parse_request_user_input_response, request_user_input_prompt_text,
+    },
 };
 
 use super::{
@@ -38,8 +39,9 @@ impl<A: Auth> ThreadActor<A> {
         event: RequestUserInputEvent,
     ) {
         let pending_request = PendingUserInputRequest::from_event(submission_id, event);
-        self.client
-            .send_agent_text(request_user_input_prompt_text(&pending_request));
+        self.execute_actor_effect(session_update::agent_text_effect(
+            request_user_input_prompt_text(&pending_request),
+        ));
         self.state.set_pending_user_input(pending_request);
     }
 
@@ -70,10 +72,10 @@ impl<A: Auth> ThreadActor<A> {
         }
 
         self.thread
-            .submit_ok(Op::UserInputAnswer {
-                id: pending_request.turn_id.clone(),
+            .submit_ok(op::user_input_answer(
+                pending_request.turn_id.clone(),
                 response,
-            })
+            ))
             .await
             .map_err(|e| Error::internal_error().data(e.to_string()))?;
 
@@ -107,7 +109,7 @@ impl<A: Auth> ThreadActor<A> {
         {
             PromptSubmission::Submit { op } => op,
             PromptSubmission::Handled { message } => {
-                self.client.send_agent_text(message);
+                self.execute_actor_effect(session_update::agent_text_effect(message));
                 response_tx.send(Ok(StopReason::EndTurn)).ok();
                 return Ok(response_rx);
             }

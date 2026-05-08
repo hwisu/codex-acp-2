@@ -31,7 +31,7 @@ pub(in crate::thread::tests) async fn setup_with_fast_mode() -> anyhow::Result<(
     UnboundedSender<ThreadMessage>,
     tokio::task::JoinHandle<()>,
 )> {
-    setup_with_config(|config| configure_fast_mode(config)).await
+    setup_with_config(configure_fast_mode).await
 }
 
 async fn setup_with_config(
@@ -91,7 +91,7 @@ pub(in crate::thread::tests) async fn setup_actor_with_fast_mode() -> anyhow::Re
     Arc<StubCodexThread>,
     ThreadActor<StubAuth>,
 )> {
-    setup_actor_with_config(|config| configure_fast_mode(config)).await
+    setup_actor_with_config(configure_fast_mode).await
 }
 
 fn configure_fast_mode(config: &mut Config) -> anyhow::Result<()> {

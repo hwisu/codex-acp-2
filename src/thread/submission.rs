@@ -5,14 +5,17 @@ use std::{
 
 use agent_client_protocol::{
     Error,
-    schema::{PermissionOption, RequestPermissionResponse, StopReason, ToolCallUpdate},
+    schema::{RequestPermissionResponse, StopReason},
 };
 use codex_protocol::protocol::EventMsg;
 use tokio::sync::{mpsc, oneshot};
+use tracing::info;
+
+use crate::boundary::{effect::BridgeEffect, tool_call::ActiveCommand};
 
 use super::{
     ThreadMessage, approvals::PendingPermissionRequest, client::SessionClient,
-    deps::CodexThreadImpl, tool_calls::ActiveCommand,
+    deps::CodexThreadImpl,
 };
 
 mod interactions;
@@ -24,8 +27,7 @@ use self::responses::PromptResponses;
 pub(super) struct PermissionInteractionRequest {
     pub(super) request_key: String,
     pub(super) pending_request: PendingPermissionRequest,
-    pub(super) tool_call: ToolCallUpdate,
-    pub(super) options: Vec<PermissionOption>,
+    pub(super) request_effect: BridgeEffect,
 }
 
 pub(super) enum SubmissionState {
@@ -129,7 +131,7 @@ impl PromptState {
         client: &SessionClient,
         call_id: &str,
         data: &str,
-    ) {
+    ) -> Option<BridgeEffect> {
         // Stream output bytes to the display-only terminal when supported. For clients
         // without terminal support, skip incremental updates to avoid O(n²) memory growth
         // from repeatedly sending the full accumulated buffer. The completion update will
@@ -138,11 +140,14 @@ impl PromptState {
             active_command.output.push_str(data);
             let supports_terminal_output = client.supports_terminal_output(active_command);
             if supports_terminal_output {
-                let update =
-                    active_command.render_streaming_update(call_id, supports_terminal_output, data);
-                client.send_tool_call_update(update);
+                return Some(active_command.render_streaming_effect(
+                    call_id,
+                    supports_terminal_output,
+                    data,
+                ));
             }
         }
+        None
     }
 
     pub(super) fn start_active_web_search(&mut self, call_id: String) {
@@ -240,6 +245,30 @@ impl PromptState {
 
     pub(super) fn send_result(&mut self, result: Result<StopReason, Error>) {
         self.responses.send(result);
+    }
+
+    pub(super) async fn execute_bridge_effect(
+        &mut self,
+        client: &SessionClient,
+        effect: BridgeEffect,
+    ) -> Result<Option<RequestPermissionResponse>, Error> {
+        match effect {
+            BridgeEffect::Forward(update) => {
+                client.send_notification(update);
+                Ok(None)
+            }
+            BridgeEffect::RequestPermission(request) => {
+                client.request_permission_request(request).await.map(Some)
+            }
+            BridgeEffect::SubmitOp(op) => {
+                self.thread.submit_ok(op).await?;
+                Ok(None)
+            }
+            BridgeEffect::Ignore(reason) => {
+                info!("Ignoring bridge effect: {reason:?}");
+                Ok(None)
+            }
+        }
     }
 
     pub(super) fn active_command_summaries(&self) -> Vec<String> {

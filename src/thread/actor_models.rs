@@ -2,9 +2,11 @@ use agent_client_protocol::{
     Error,
     schema::{ModelId, ModelInfo, SessionConfigValueId, SessionModelState},
 };
-use codex_protocol::{
-    openai_models::{ModelPreset, ReasoningEffort},
-    protocol::Op,
+use codex_protocol::openai_models::{ModelPreset, ReasoningEffort};
+
+use crate::boundary::{
+    model::{self, ModelIdParseError, ModelSelection},
+    op::{self, ReasoningEffortOverride},
 };
 
 use super::{
@@ -28,7 +30,11 @@ impl<A: Auth> ThreadActor<A> {
     }
 
     pub(super) fn parse_model_id(id: &ModelId) -> Option<(String, ReasoningEffort)> {
-        parse_model_id_value(id)
+        model::parse_compound_model_id(id).and_then(|selection| {
+            selection
+                .reasoning_effort
+                .map(|effort| (selection.model, effort))
+        })
     }
     pub(super) async fn handle_set_config_model(
         &mut self,
@@ -143,14 +149,14 @@ impl<A: Auth> ThreadActor<A> {
         Ok(())
     }
 
-    async fn apply_selected_model(&mut self, selection: SelectedModel) -> Result<(), Error> {
+    async fn apply_selected_model(&mut self, selection: ModelSelection) -> Result<(), Error> {
         self.submit_model_override(
             Some(selection.model.clone()),
-            ReasoningEffortOverride::from_selected_effort(selection.effort),
+            ReasoningEffortOverride::from_selected_effort(selection.reasoning_effort),
         )
         .await?;
         self.config.model = Some(selection.model);
-        self.config.model_reasoning_effort = selection.effort;
+        self.config.model_reasoning_effort = selection.reasoning_effort;
         Ok(())
     }
 
@@ -160,44 +166,8 @@ impl<A: Auth> ThreadActor<A> {
         effort: ReasoningEffortOverride,
     ) -> Result<(), Error> {
         self.thread
-            .submit_ok(Op::OverrideTurnContext {
-                cwd: None,
-                approval_policy: None,
-                sandbox_policy: None,
-                model,
-                effort: Some(effort.into_op_value()),
-                summary: None,
-                collaboration_mode: None,
-                personality: None,
-                windows_sandbox_level: None,
-                service_tier: None,
-                approvals_reviewer: None,
-                permission_profile: None,
-            })
+            .submit_ok(op::override_model(model, effort))
             .await
-    }
-}
-
-struct SelectedModel {
-    model: String,
-    effort: Option<ReasoningEffort>,
-}
-
-enum ReasoningEffortOverride {
-    Set(ReasoningEffort),
-    Clear,
-}
-
-impl ReasoningEffortOverride {
-    fn from_selected_effort(effort: Option<ReasoningEffort>) -> Self {
-        effort.map_or(Self::Clear, Self::Set)
-    }
-
-    fn into_op_value(self) -> Option<ReasoningEffort> {
-        match self {
-            Self::Set(effort) => Some(effort),
-            Self::Clear => None,
-        }
     }
 }
 
@@ -210,7 +180,7 @@ fn select_config_model(
     model_id: &str,
     presets: &[ModelPreset],
     configured_effort: Option<ReasoningEffort>,
-) -> Result<SelectedModel, Error> {
+) -> Result<ModelSelection, Error> {
     let preset = presets.iter().find(|preset| preset.id == model_id);
     let model = preset.map_or_else(|| model_id.to_string(), |preset| preset.model.clone());
 
@@ -218,18 +188,21 @@ fn select_config_model(
         return Err(Error::invalid_params().data("No model selected"));
     }
 
-    let effort = preset.map_or(configured_effort, |preset| {
+    let reasoning_effort = preset.map_or(configured_effort, |preset| {
         Some(effective_reasoning_effort(preset, configured_effort))
     });
 
-    Ok(SelectedModel { model, effort })
+    Ok(ModelSelection {
+        model,
+        reasoning_effort,
+    })
 }
 
 fn normalized_current_model_selection(
     current_model: &str,
     presets: &[ModelPreset],
     configured_effort: Option<ReasoningEffort>,
-) -> Option<SelectedModel> {
+) -> Option<ModelSelection> {
     let preset = resolve_model_preset(presets, Some(current_model))?;
     let effort = effective_reasoning_effort(preset, configured_effort);
 
@@ -237,9 +210,9 @@ fn normalized_current_model_selection(
         return None;
     }
 
-    Some(SelectedModel {
+    Some(ModelSelection {
         model: preset.model.clone(),
-        effort: Some(effort),
+        reasoning_effort: Some(effort),
     })
 }
 
@@ -248,8 +221,14 @@ fn select_model_id(
     presets: &[ModelPreset],
     current_model: Option<&str>,
     configured_effort: Option<ReasoningEffort>,
-) -> Result<SelectedModel, Error> {
-    if let Some((requested_model, requested_effort)) = parse_model_id_value(model) {
+) -> Result<ModelSelection, Error> {
+    let parsed_selection =
+        model::parse_optional_compound_model_id(model).map_err(model_id_parse_error)?;
+    if let Some(ModelSelection {
+        model: requested_model,
+        reasoning_effort: Some(requested_effort),
+    }) = parsed_selection
+    {
         let preset = find_preset_by_id_or_model(presets, &requested_model)
             .ok_or_else(|| Error::invalid_params().data(format!("Unknown model {}", model.0)))?;
         if !supports_reasoning_effort(preset, requested_effort) {
@@ -258,9 +237,9 @@ fn select_model_id(
                 preset.model
             )));
         }
-        return Ok(SelectedModel {
+        return Ok(ModelSelection {
             model: preset.model.clone(),
-            effort: Some(requested_effort),
+            reasoning_effort: Some(requested_effort),
         });
     }
 
@@ -276,9 +255,9 @@ fn select_model_id(
         return Err(Error::invalid_params().data("No model parsed or configured"));
     }
 
-    Ok(SelectedModel {
+    Ok(ModelSelection {
         model: preset.model.clone(),
-        effort: Some(effective_reasoning_effort(preset, configured_effort)),
+        reasoning_effort: Some(effective_reasoning_effort(preset, configured_effort)),
     })
 }
 
@@ -307,12 +286,12 @@ fn supports_reasoning_effort(preset: &ModelPreset, effort: ReasoningEffort) -> b
         .any(|supported| supported.effort == effort)
 }
 
-fn parse_model_id_value(id: &ModelId) -> Option<(String, ReasoningEffort)> {
-    let (model, reasoning) = if let Some(value) = id.0.strip_suffix(']') {
-        value.rsplit_once('[')?
-    } else {
-        id.0.split_once('/')?
+fn model_id_parse_error(error: ModelIdParseError) -> Error {
+    let message = match error {
+        ModelIdParseError::MissingReasoningEffort => "Missing reasoning effort".to_string(),
+        ModelIdParseError::InvalidReasoningEffort(effort) => {
+            format!("Unsupported reasoning effort {effort}")
+        }
     };
-    let reasoning = serde_json::from_value(reasoning.into()).ok()?;
-    Some((model.to_owned(), reasoning))
+    Error::invalid_params().data(message)
 }

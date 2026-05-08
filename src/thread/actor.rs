@@ -1,17 +1,16 @@
 use std::{collections::HashMap, sync::Arc, time::Duration};
 
-use agent_client_protocol::{
-    Error,
-    schema::{AvailableCommandsUpdate, SessionUpdate},
-};
+use agent_client_protocol::Error;
 use codex_core::config::Config;
-use codex_protocol::{
-    ThreadId,
-    models::PermissionProfile,
-    protocol::{Event, EventMsg, Op, ReviewDecision},
-};
+use codex_protocol::{ThreadId, models::PermissionProfile, protocol::Event};
 use tokio::sync::{mpsc, oneshot};
 use tracing::{error, warn};
+
+use crate::boundary::{
+    effect::{BridgeEffect, BridgeEffectKind},
+    mapper::{self, ActorEventAction, ActorPendingUserInputClear},
+    op, session_update,
+};
 
 use super::{
     ThreadMessage,
@@ -154,9 +153,8 @@ impl<A: Auth> ThreadActor<A> {
                 // in a separate task
                 tokio::spawn(async move {
                     tokio::time::sleep(Duration::from_millis(200)).await;
-                    client.send_notification(SessionUpdate::AvailableCommandsUpdate(
-                        AvailableCommandsUpdate::new(available_commands),
-                    ));
+                    client
+                        .send_notification(session_update::available_commands(available_commands));
                 });
             }
             ThreadMessage::GetConfigOptions { response_tx } => {
@@ -235,13 +233,13 @@ impl<A: Auth> ThreadActor<A> {
 
     pub(super) async fn handle_cancel(&mut self) -> Result<(), Error> {
         self.abort_pending_interactions();
-        self.thread.submit_ok(Op::Interrupt).await?;
+        self.thread.submit_ok(op::interrupt()).await?;
         Ok(())
     }
 
     pub(super) async fn handle_shutdown(&mut self) -> Result<(), Error> {
         self.abort_pending_interactions();
-        self.thread.submit_ok(Op::Shutdown).await?;
+        self.thread.submit_ok(op::shutdown()).await?;
         Ok(())
     }
 
@@ -252,37 +250,53 @@ impl<A: Auth> ThreadActor<A> {
     }
 
     pub(super) async fn handle_event(&mut self, Event { id, msg }: Event) {
-        self.state.update_from_event(&msg);
+        let plan = mapper::plan_actor_event(&msg);
+        self.state.apply_event_updates(plan.state_updates);
 
-        let clears_pending_user_input = matches!(
-            &msg,
-            EventMsg::TurnComplete(..)
-                | EventMsg::TurnAborted(..)
-                | EventMsg::ShutdownComplete
-                | EventMsg::Error(..)
-        );
+        let (bridge_effect, clear_pending_user_input, full_access_auto_approval) = match plan.action
+        {
+            ActorEventAction::RegisterPendingUserInput(event) => {
+                self.register_pending_user_input(id, event);
+                return;
+            }
+            ActorEventAction::RouteToSubmission {
+                bridge_effect,
+                clear_pending_user_input,
+                full_access_auto_approval,
+            } => (
+                bridge_effect,
+                clear_pending_user_input,
+                full_access_auto_approval,
+            ),
+        };
 
-        if let EventMsg::RequestUserInput(event) = msg {
-            self.register_pending_user_input(id, event);
-            return;
-        }
-
-        if self.maybe_auto_approve_permission_request(&msg).await {
+        if self
+            .maybe_auto_approve_permission_request(full_access_auto_approval)
+            .await
+        {
             return;
         }
 
         if let Some(submission) = self.submissions.get_mut(&id) {
             submission.handle_event(&self.client, msg).await;
+        } else if let BridgeEffectKind::Ignore(reason) = bridge_effect {
+            tracing::info!("Ignoring Codex event for unknown submission {id}: {reason:?}");
         } else {
             warn!("Received event for unknown submission ID: {id} {msg:?}");
         }
 
-        if clears_pending_user_input {
-            self.state.clear_pending_user_input_for_submission(&id);
+        match clear_pending_user_input {
+            ActorPendingUserInputClear::Submission => {
+                self.state.clear_pending_user_input_for_submission(&id);
+            }
+            ActorPendingUserInputClear::None => {}
         }
     }
 
-    async fn maybe_auto_approve_permission_request(&self, msg: &EventMsg) -> bool {
+    async fn maybe_auto_approve_permission_request(
+        &self,
+        auto_approval: Option<mapper::ActorAutoApproval>,
+    ) -> bool {
         if !matches!(
             self.config.permissions.permission_profile.get(),
             PermissionProfile::Disabled
@@ -290,40 +304,35 @@ impl<A: Auth> ThreadActor<A> {
             return false;
         }
 
-        match msg {
-            EventMsg::ExecApprovalRequest(event) => {
-                let approval_id = event
-                    .approval_id
-                    .clone()
-                    .unwrap_or_else(|| event.call_id.clone());
-                if let Err(err) = self
-                    .thread
-                    .submit_ok(Op::ExecApproval {
-                        id: approval_id,
-                        turn_id: Some(event.turn_id.clone()),
-                        decision: ReviewDecision::Approved,
-                    })
-                    .await
-                {
-                    warn!("failed to auto-approve exec request in full-access mode: {err}");
-                }
-                true
-            }
-            EventMsg::ApplyPatchApprovalRequest(event) => {
-                if let Err(err) = self
-                    .thread
-                    .submit_ok(Op::PatchApproval {
-                        id: event.call_id.clone(),
-                        decision: ReviewDecision::Approved,
-                    })
-                    .await
-                {
-                    warn!("failed to auto-approve patch request in full-access mode: {err}");
-                }
-                true
-            }
-            _ => false,
+        let Some(auto_approval) = auto_approval else {
+            return false;
+        };
+
+        if let Err(err) = self.thread.submit_ok(auto_approval.into_op()).await {
+            warn!("failed to auto-approve permission request in full-access mode: {err}");
         }
+        true
+    }
+
+    pub(super) fn execute_actor_effect(&self, effect: BridgeEffect) {
+        match effect {
+            BridgeEffect::Forward(update) => {
+                self.client.send_notification(update);
+            }
+            BridgeEffect::Ignore(reason) => {
+                tracing::info!("Ignoring replay bridge effect: {reason:?}");
+            }
+            BridgeEffect::RequestPermission(_) => {
+                warn!("Ignoring replay permission request effect");
+            }
+            BridgeEffect::SubmitOp(_) => {
+                warn!("Ignoring replay submit-op effect");
+            }
+        }
+    }
+
+    pub(super) fn execute_replay_effect(&self, effect: BridgeEffect) {
+        self.execute_actor_effect(effect);
     }
 }
 

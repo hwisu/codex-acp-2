@@ -83,6 +83,14 @@ fn model_id_accepts_agentclientprotocol_bracket_format() {
     assert_eq!(parsed, ("gpt-5.4".to_string(), ReasoningEffort::High));
 }
 
+#[test]
+fn model_id_accepts_legacy_slash_format() {
+    let parsed = ThreadActor::<StubAuth>::parse_model_id(&ModelId::new("gpt-5.4/high"))
+        .expect("legacy slash model id should parse");
+
+    assert_eq!(parsed, ("gpt-5.4".to_string(), ReasoningEffort::High));
+}
+
 #[tokio::test]
 async fn config_options_expose_mode_model_and_reasoning_separately() -> anyhow::Result<()> {
     let (_, _, _, mut actor) = setup_actor().await?;
@@ -447,6 +455,21 @@ async fn setting_model_with_bracket_effort_sends_explicit_effort() -> anyhow::Re
             ..
         }] if model == "gpt-5.4"
     ));
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn setting_model_with_unsupported_effort_fails() -> anyhow::Result<()> {
+    let (_, _, thread, mut actor) = setup_actor().await?;
+
+    assert!(
+        actor
+            .handle_set_model(ModelId::new("gpt-5.4[warp]"))
+            .await
+            .is_err()
+    );
+    assert!(thread.ops().is_empty());
 
     Ok(())
 }

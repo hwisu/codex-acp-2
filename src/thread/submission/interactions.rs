@@ -1,26 +1,16 @@
-use std::{collections::HashMap, sync::Arc};
+use std::collections::HashMap;
 
-use agent_client_protocol::{
-    Error,
-    schema::{RequestPermissionOutcome, RequestPermissionResponse, SelectedPermissionOutcome},
-};
-use codex_protocol::{
-    protocol::Op,
-    request_permissions::{
-        PermissionGrantScope, RequestPermissionProfile, RequestPermissionsResponse,
-    },
-};
+use agent_client_protocol::{Error, schema::RequestPermissionResponse};
 use tracing::warn;
 
-use crate::thread::{
-    ThreadMessage,
-    approvals::{
-        PendingPermissionInteraction, PendingPermissionRequest, ResolvedMcpElicitation,
-        resolve_review_decision,
+use crate::{
+    boundary::{approval, effect::BridgeEffect},
+    thread::{
+        ThreadMessage,
+        approvals::{PendingPermissionInteraction, PendingPermissionRequest},
+        client::SessionClient,
+        submission::{PermissionInteractionRequest, PromptState},
     },
-    client::SessionClient,
-    deps::CodexThreadImpl,
-    submission::{PermissionInteractionRequest, PromptState},
 };
 
 #[derive(Default)]
@@ -45,13 +35,18 @@ impl PermissionInteractionState {
         let PermissionInteractionRequest {
             request_key,
             pending_request,
-            tool_call,
-            options,
+            request_effect,
         } = request;
         let client = client.clone();
         let resolved_request_key = request_key.clone();
         let handle = tokio::spawn(async move {
-            let response = client.request_permission(tool_call, options).await;
+            let response = match request_effect {
+                BridgeEffect::RequestPermission(request) => {
+                    client.request_permission_request(request).await
+                }
+                _other_effect => Err(Error::internal_error()
+                    .data("permission interaction received non-permission bridge effect")),
+            };
             drop(
                 resolution_tx.send(ThreadMessage::PermissionRequestResolved {
                     submission_id,
@@ -74,88 +69,43 @@ impl PermissionInteractionState {
 
     async fn resolve(
         &mut self,
-        thread: &Arc<dyn CodexThreadImpl>,
         request_key: String,
         response: Result<RequestPermissionResponse, Error>,
-    ) -> Result<(), Error> {
+    ) -> Result<Option<BridgeEffect>, Error> {
         let Some(interaction) = self.interactions.remove(&request_key) else {
             warn!("Ignoring permission response for unknown request key: {request_key}");
-            return Ok(());
+            return Ok(None);
         };
         let pending_request = interaction.request;
         let response = response?;
 
-        match pending_request {
+        let op = match pending_request {
             PendingPermissionRequest::Exec {
                 approval_id,
                 turn_id,
                 option_map,
-            } => {
-                let decision = resolve_review_decision(response.outcome, &option_map);
-
-                thread
-                    .submit_ok(Op::ExecApproval {
-                        id: approval_id,
-                        turn_id: Some(turn_id),
-                        decision,
-                    })
-                    .await?;
-            }
+            } => approval::exec_approval_op(approval_id, turn_id, response.outcome, &option_map),
             PendingPermissionRequest::Patch {
                 call_id,
                 option_map,
-            } => {
-                let decision = resolve_review_decision(response.outcome, &option_map);
-
-                thread
-                    .submit_ok(Op::PatchApproval {
-                        id: call_id,
-                        decision,
-                    })
-                    .await?;
-            }
+            } => approval::patch_approval_op(call_id, response.outcome, &option_map),
             PendingPermissionRequest::RequestPermissions {
                 call_id,
                 permissions,
-            } => {
-                let response = request_permissions_response(response.outcome, &permissions);
-
-                thread
-                    .submit_ok(Op::RequestPermissionsResponse {
-                        id: call_id,
-                        response,
-                    })
-                    .await?;
-            }
+            } => approval::request_permissions_op(call_id, response.outcome, &permissions),
             PendingPermissionRequest::McpElicitation {
                 server_name,
                 request_id,
                 option_map,
-            } => {
-                let response = match response.outcome {
-                    RequestPermissionOutcome::Selected(SelectedPermissionOutcome {
-                        option_id,
-                        ..
-                    }) => option_map
-                        .get(option_id.0.as_ref())
-                        .cloned()
-                        .unwrap_or_else(ResolvedMcpElicitation::cancel),
-                    RequestPermissionOutcome::Cancelled | _ => ResolvedMcpElicitation::cancel(),
-                };
+            } => approval::resolve_mcp_elicitation_op(
+                server_name,
+                request_id,
+                response.outcome,
+                &option_map,
+            ),
+        };
 
-                thread
-                    .submit_ok(Op::ResolveElicitation {
-                        server_name,
-                        request_id,
-                        decision: response.action,
-                        content: response.content,
-                        meta: response.meta,
-                    })
-                    .await?;
-            }
-        }
-
-        Ok(())
+        Ok(Some(BridgeEffect::SubmitOp(op)))
     }
 }
 
@@ -183,40 +133,14 @@ impl PromptState {
         request_key: String,
         response: Result<RequestPermissionResponse, Error>,
     ) -> Result<(), Error> {
-        self.permission_interactions
-            .resolve(&self.thread, request_key, response)
-            .await
-    }
-}
-
-fn request_permissions_response(
-    outcome: RequestPermissionOutcome,
-    permissions: &RequestPermissionProfile,
-) -> RequestPermissionsResponse {
-    match outcome {
-        RequestPermissionOutcome::Selected(SelectedPermissionOutcome { option_id, .. }) => {
-            match option_id.0.as_ref() {
-                "approved-for-session" => RequestPermissionsResponse {
-                    permissions: permissions.clone(),
-                    scope: PermissionGrantScope::Session,
-                    strict_auto_review: false,
-                },
-                "approved" => RequestPermissionsResponse {
-                    permissions: permissions.clone(),
-                    scope: PermissionGrantScope::Turn,
-                    strict_auto_review: false,
-                },
-                _ => denied_request_permissions_response(),
-            }
+        if let Some(effect) = self
+            .permission_interactions
+            .resolve(request_key, response)
+            .await?
+        {
+            self.execute_bridge_effect(_client, effect).await?;
         }
-        RequestPermissionOutcome::Cancelled | _ => denied_request_permissions_response(),
-    }
-}
 
-fn denied_request_permissions_response() -> RequestPermissionsResponse {
-    RequestPermissionsResponse {
-        permissions: RequestPermissionProfile::default(),
-        scope: PermissionGrantScope::Turn,
-        strict_auto_review: true,
+        Ok(())
     }
 }

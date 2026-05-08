@@ -1,11 +1,13 @@
 use super::fixtures::*;
 
+use crate::boundary::constants::permission_option;
+
 #[tokio::test]
 async fn test_exec_approval_uses_available_decisions() -> anyhow::Result<()> {
     let session_id = SessionId::new("test");
     let client = Arc::new(StubClient::with_permission_responses(vec![
         RequestPermissionResponse::new(RequestPermissionOutcome::Selected(
-            SelectedPermissionOutcome::new("denied"),
+            SelectedPermissionOutcome::new(permission_option::DENIED),
         )),
     ]));
     let session_client =
@@ -60,7 +62,13 @@ async fn test_exec_approval_uses_available_decisions() -> anyhow::Result<()> {
         .iter()
         .map(|option| option.option_id.0.to_string())
         .collect::<Vec<_>>();
-    assert_eq!(option_ids, vec!["approved", "denied"]);
+    assert_eq!(
+        option_ids,
+        vec![
+            permission_option::APPROVED.to_string(),
+            permission_option::DENIED.to_string()
+        ]
+    );
 
     let ops = thread.ops();
     assert!(matches!(
@@ -80,7 +88,7 @@ async fn test_patch_rejection_denies_without_cancelling_turn() -> anyhow::Result
     let session_id = SessionId::new("test");
     let client = Arc::new(StubClient::with_permission_responses(vec![
         RequestPermissionResponse::new(RequestPermissionOutcome::Selected(
-            SelectedPermissionOutcome::new("denied"),
+            SelectedPermissionOutcome::new(permission_option::DENIED),
         )),
     ]));
     let session_client =
@@ -137,7 +145,13 @@ async fn test_patch_rejection_denies_without_cancelling_turn() -> anyhow::Result
         .iter()
         .map(|option| option.option_id.0.to_string())
         .collect::<Vec<_>>();
-    assert_eq!(option_ids, vec!["approved", "denied"]);
+    assert_eq!(
+        option_ids,
+        vec![
+            permission_option::APPROVED.to_string(),
+            permission_option::DENIED.to_string()
+        ]
+    );
 
     let ops = thread.ops();
     assert!(matches!(

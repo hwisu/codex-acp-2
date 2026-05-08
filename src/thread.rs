@@ -15,7 +15,7 @@ use codex_protocol::{
     ThreadId,
     config_types::{CollaborationMode, ModeKind, Settings},
     openai_models::ReasoningEffort,
-    protocol::{Op, RolloutItem},
+    protocol::RolloutItem,
 };
 use tokio::sync::{mpsc, oneshot};
 
@@ -28,19 +28,14 @@ mod actor_state;
 mod actor_status;
 mod approvals;
 mod client;
-mod collab_render;
 mod deps;
-mod file_changes;
-mod mcp_approvals;
 mod model_picker;
 mod prompt_items;
 mod replay;
 mod replay_items;
 mod slash_commands;
 mod submission;
-mod submission_collab;
 mod submission_dispatch;
-mod submission_dynamic;
 mod submission_exec;
 mod submission_guardian;
 mod submission_lifecycle;
@@ -48,12 +43,12 @@ mod submission_mcp;
 mod submission_patch;
 mod submission_permissions;
 mod submission_web_image;
-mod tool_calls;
-mod web_search;
 
 use client::SessionClient;
 pub use deps::CodexThreadImpl;
 use deps::ModelsManagerImpl;
+
+use crate::boundary::op;
 
 static DISABLE_TERMINAL_OUTPUT: LazyLock<bool> = LazyLock::new(|| {
     std::env::var("CODEX_ACP_DISABLE_TERMINAL_OUTPUT")
@@ -257,7 +252,7 @@ impl Thread {
         let message = ThreadMessage::Shutdown { response_tx };
 
         if self.message_tx.send(message).is_err() {
-            self.thread.submit_ok(Op::Shutdown).await?;
+            self.thread.submit_ok(op::shutdown()).await?;
         } else {
             response_rx
                 .await

@@ -1,15 +1,16 @@
 use agent_client_protocol::{
     Error,
     schema::{
-        ConfigOptionUpdate, LoadSessionResponse, SessionConfigId, SessionConfigOption,
-        SessionConfigOptionCategory, SessionConfigOptionValue, SessionConfigSelectOption,
-        SessionModeId, SessionUpdate,
+        LoadSessionResponse, SessionConfigId, SessionConfigOption, SessionConfigOptionCategory,
+        SessionConfigOptionValue, SessionConfigSelectOption, SessionModeId,
     },
 };
 use codex_core::config::edit::ConfigEditsBuilder;
 use codex_features::Feature;
-use codex_protocol::{config_types::ServiceTier, protocol::Op};
+use codex_protocol::config_types::ServiceTier;
 use heck::ToTitleCase;
+
+use crate::boundary::{op, session_update};
 
 use super::{actor::ThreadActor, deps::Auth, model_picker::resolve_model_preset};
 
@@ -171,10 +172,7 @@ impl<A: Auth> ThreadActor<A> {
         self.state
             .set_last_sent_config_options(config_options.clone());
 
-        self.client
-            .send_notification(SessionUpdate::ConfigOptionUpdate(ConfigOptionUpdate::new(
-                config_options,
-            )));
+        self.execute_actor_effect(session_update::config_options_effect(config_options));
     }
 
     pub(super) async fn handle_set_config_option(
@@ -229,20 +227,7 @@ impl<A: Auth> ThreadActor<A> {
             .map_err(|e| Error::from(anyhow::anyhow!(e)))?;
 
         self.thread
-            .submit_ok(Op::OverrideTurnContext {
-                cwd: None,
-                approval_policy: None,
-                sandbox_policy: None,
-                model: None,
-                effort: None,
-                summary: None,
-                collaboration_mode: None,
-                personality: None,
-                windows_sandbox_level: None,
-                service_tier: Some(service_tier_value.clone()),
-                approvals_reviewer: None,
-                permission_profile: None,
-            })
+            .submit_ok(op::override_service_tier(service_tier_value.clone()))
             .await?;
 
         self.config.service_tier = service_tier_value;
