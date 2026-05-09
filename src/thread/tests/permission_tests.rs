@@ -31,6 +31,7 @@ async fn test_exec_approval_uses_available_decisions() -> anyhow::Result<()> {
             command: vec!["echo".to_string(), "hi".to_string()],
             cwd: std::env::current_dir()?.try_into()?,
             reason: None,
+            started_at_ms: 0,
             network_approval_context: None,
             proposed_execpolicy_amendment: None,
             proposed_network_policy_amendments: None,
@@ -120,6 +121,7 @@ async fn test_patch_rejection_denies_without_cancelling_turn() -> anyhow::Result
             changes,
             reason: None,
             grant_root: None,
+            started_at_ms: 0,
         },
     );
 
@@ -363,6 +365,7 @@ async fn test_blocked_approval_does_not_block_followup_events() -> anyhow::Resul
                 command: vec!["echo".to_string(), "hi".to_string()],
                 cwd: std::env::current_dir()?.try_into()?,
                 reason: None,
+                started_at_ms: 0,
                 network_approval_context: None,
                 proposed_execpolicy_amendment: None,
                 proposed_network_policy_amendments: None,
@@ -479,6 +482,7 @@ async fn test_full_access_auto_approves_patch_permission_requests() -> anyhow::R
                 changes,
                 reason: None,
                 grant_root: None,
+                started_at_ms: 0,
             }),
         })
         .await;

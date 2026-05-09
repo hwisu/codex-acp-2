@@ -211,6 +211,7 @@ impl StubCodexThread {
                 command: vec!["echo".to_string(), "hi".to_string()],
                 cwd: fixture_absolute_path(fixture_cwd()),
                 reason: None,
+                started_at_ms: 0,
                 network_approval_context: None,
                 proposed_execpolicy_amendment: None,
                 proposed_network_policy_amendments: None,

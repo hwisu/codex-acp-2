@@ -46,6 +46,7 @@ use codex_core::{
     resolve_installation_id, thread_store_from_config,
 };
 use codex_exec_server::{EnvironmentManager, EnvironmentManagerArgs, ExecServerRuntimePaths};
+use codex_features::Feature;
 use codex_login::{
     CODEX_API_KEY_ENV_VAR, OPENAI_API_KEY_ENV_VAR,
     auth::{AuthManager, CodexAuth, read_codex_api_key_from_env, read_openai_api_key_from_env},
@@ -350,12 +351,48 @@ fn seed_ephemeral_api_key_auth_from_env(codex_home: &Path) -> std::io::Result<bo
     )
 }
 
+fn effective_config_has_feature_setting(
+    effective_config: &codex_config::TomlValue,
+    active_profile: Option<&str>,
+    feature: Feature,
+) -> bool {
+    let key = feature.key();
+    effective_config
+        .get("features")
+        .and_then(|features| features.get(key))
+        .is_some()
+        || active_profile.is_some_and(|profile| {
+            effective_config
+                .get("profiles")
+                .and_then(|profiles| profiles.get(profile))
+                .and_then(|profile| profile.get("features"))
+                .and_then(|features| features.get(key))
+                .is_some()
+        })
+}
+
+fn apply_codex_acp_default_features(config: &mut Config) {
+    let effective_config = config.config_layer_stack.effective_config();
+    if effective_config_has_feature_setting(
+        &effective_config,
+        config.active_profile.as_deref(),
+        Feature::Goals,
+    ) {
+        return;
+    }
+
+    if let Err(err) = config.features.enable(Feature::Goals) {
+        debug!(?err, "Unable to enable goals feature by default");
+    }
+}
+
 impl CodexAgent {
     /// Create a new `CodexAgent` with the given configuration
     pub async fn new(
-        config: Config,
+        mut config: Config,
         codex_linux_sandbox_exe: Option<PathBuf>,
     ) -> std::io::Result<Self> {
+        apply_codex_acp_default_features(&mut config);
         seed_ephemeral_api_key_auth_from_env(&config.codex_home)?;
         let auth_manager = AuthManager::shared(
             config.codex_home.to_path_buf(),
@@ -1154,6 +1191,49 @@ mod tests {
             codex_login::AuthCredentialsStoreMode::File,
         ));
         drop(std::fs::remove_dir_all(&codex_home));
+        Ok(())
+    }
+
+    #[test]
+    fn default_goals_feature_applies_only_when_unconfigured() -> anyhow::Result<()> {
+        let unconfigured = codex_config::TomlValue::Table(Default::default());
+        assert!(!effective_config_has_feature_setting(
+            &unconfigured,
+            None,
+            Feature::Goals
+        ));
+
+        let top_level: codex_config::TomlValue = serde_json::from_value(serde_json::json!({
+            "features": {
+                "goals": false,
+            },
+        }))?;
+        assert!(effective_config_has_feature_setting(
+            &top_level,
+            None,
+            Feature::Goals
+        ));
+
+        let profile: codex_config::TomlValue = serde_json::from_value(serde_json::json!({
+            "profiles": {
+                "toad": {
+                    "features": {
+                        "goals": false,
+                    },
+                },
+            },
+        }))?;
+        assert!(effective_config_has_feature_setting(
+            &profile,
+            Some("toad"),
+            Feature::Goals
+        ));
+        assert!(!effective_config_has_feature_setting(
+            &profile,
+            Some("other"),
+            Feature::Goals
+        ));
+
         Ok(())
     }
 

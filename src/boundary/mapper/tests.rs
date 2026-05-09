@@ -107,6 +107,7 @@ fn plans_full_access_patch_auto_approval_as_submit_op() {
             changes: std::collections::HashMap::new(),
             reason: None,
             grant_root: None,
+            started_at_ms: 0,
         },
     );
 

@@ -412,6 +412,8 @@ fn guardian_assessment_content_includes_action_risk_and_rationale() {
         target_item_id: None,
         turn_id: "turn-1".to_string(),
         status: GuardianAssessmentStatus::Denied,
+        started_at_ms: 0,
+        completed_at_ms: None,
         risk_level: Some(GuardianRiskLevel::High),
         user_authorization: None,
         rationale: Some("The network request was not authorized.".to_string()),

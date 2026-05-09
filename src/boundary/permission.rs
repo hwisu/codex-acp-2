@@ -205,6 +205,7 @@ pub(crate) fn exec_approval_interaction(
         additional_permissions,
         available_decisions: _,
         proposed_network_policy_amendments: _,
+        started_at_ms: _,
     } = event;
 
     let tool_call_id = ToolCallId::new(call_id.clone());
@@ -269,6 +270,7 @@ pub(crate) fn patch_approval_interaction(
         reason,
         grant_root: _,
         turn_id: _,
+        started_at_ms: _,
     } = event;
     let (title, locations, content) =
         extract_tool_call_content_from_changes(changes, FileChangeRenderContext::BeforeApply);
@@ -329,6 +331,7 @@ pub(crate) fn request_permissions_interaction(
         reason,
         permissions,
         cwd: _,
+        started_at_ms: _,
     } = event;
 
     let tool_call_id = ToolCallId::new(call_id.clone());
@@ -511,6 +514,7 @@ mod tests {
             command: vec!["echo".to_string(), "hi".to_string()],
             cwd: std::env::current_dir()?.try_into()?,
             reason: Some("Need to run command".to_string()),
+            started_at_ms: 0,
             network_approval_context: None,
             proposed_execpolicy_amendment: None,
             proposed_network_policy_amendments: None,
@@ -549,6 +553,7 @@ mod tests {
             changes: HashMap::new(),
             reason: Some("Need to edit files".to_string()),
             grant_root: None,
+            started_at_ms: 0,
         });
 
         assert_eq!(interaction.request_key, "patch:patch-call");
@@ -605,6 +610,7 @@ mod tests {
             reason: Some("Need broader access".to_string()),
             permissions: RequestPermissionProfile::default(),
             cwd: None,
+            started_at_ms: 0,
         });
 
         assert_eq!(interaction.request_key, "permissions:permissions-call");
