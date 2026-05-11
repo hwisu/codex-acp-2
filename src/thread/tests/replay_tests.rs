@@ -92,17 +92,18 @@ async fn test_replay_history_restores_plan_and_subagent_state() -> anyhow::Resul
                 result: String::new(),
                 saved_path: Some(saved_path),
             })),
-            RolloutItem::EventMsg(EventMsg::CollabAgentSpawnEnd(CollabAgentSpawnEndEvent {
-                call_id: "replay-spawn".to_string(),
-                completed_at_ms: 0,
-                sender_thread_id,
-                new_thread_id: Some(receiver_thread_id),
-                new_agent_nickname: Some("Parity Worker".to_string()),
-                new_agent_role: Some("worker".to_string()),
-                prompt: "Investigate replay parity".to_string(),
-                model: "gpt-5.4".to_string(),
-                reasoning_effort: ReasoningEffort::Medium,
-                status: codex_protocol::protocol::AgentStatus::Running,
+            RolloutItem::EventMsg(EventMsg::CollabAgentSpawnEnd({
+                let mut end = test_fixtures::collab_spawn_end(
+                    "replay-spawn",
+                    sender_thread_id,
+                    Some(receiver_thread_id),
+                    "Investigate replay parity",
+                    "gpt-5.4",
+                    ReasoningEffort::Medium,
+                );
+                end.new_agent_nickname = Some("Parity Worker".to_string());
+                end.new_agent_role = Some("worker".to_string());
+                end
             })),
         ],
         response_tx: replay_response_tx,

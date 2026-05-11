@@ -24,23 +24,16 @@ async fn test_exec_approval_uses_available_decisions() -> anyhow::Result<()> {
 
     prompt_state.exec_approval(
         &session_client,
-        ExecApprovalRequestEvent {
-            call_id: "call-id".to_string(),
-            approval_id: Some("approval-id".to_string()),
-            turn_id: "turn-id".to_string(),
-            command: vec!["echo".to_string(), "hi".to_string()],
-            cwd: std::env::current_dir()?.try_into()?,
-            reason: None,
-            started_at_ms: 0,
-            network_approval_context: None,
-            proposed_execpolicy_amendment: None,
-            proposed_network_policy_amendments: None,
-            additional_permissions: None,
-            available_decisions: Some(vec![ReviewDecision::Approved, ReviewDecision::Denied]),
-            parsed_cmd: vec![ParsedCommand::Unknown {
+        test_fixtures::exec_approval_request(
+            "call-id",
+            "turn-id",
+            std::env::current_dir()?.try_into()?,
+            vec!["echo".to_string(), "hi".to_string()],
+            vec![ParsedCommand::Unknown {
                 cmd: "echo hi".to_string(),
             }],
-        },
+            Some(vec![ReviewDecision::Approved, ReviewDecision::Denied]),
+        ),
     )?;
 
     let ThreadMessage::PermissionRequestResolved {
@@ -115,14 +108,7 @@ async fn test_patch_rejection_denies_without_cancelling_turn() -> anyhow::Result
 
     prompt_state.patch_approval(
         &session_client,
-        ApplyPatchApprovalRequestEvent {
-            call_id: "patch-call".to_string(),
-            turn_id: "turn-id".to_string(),
-            changes,
-            reason: None,
-            grant_root: None,
-            started_at_ms: 0,
-        },
+        test_fixtures::apply_patch_approval_request("patch-call", "turn-id", changes, None),
     );
 
     let ThreadMessage::PermissionRequestResolved {
@@ -358,23 +344,16 @@ async fn test_blocked_approval_does_not_block_followup_events() -> anyhow::Resul
     prompt_state
         .handle_event(
             &session_client,
-            EventMsg::ExecApprovalRequest(ExecApprovalRequestEvent {
-                call_id: "call-id".to_string(),
-                approval_id: Some("approval-id".to_string()),
-                turn_id: "turn-id".to_string(),
-                command: vec!["echo".to_string(), "hi".to_string()],
-                cwd: std::env::current_dir()?.try_into()?,
-                reason: None,
-                started_at_ms: 0,
-                network_approval_context: None,
-                proposed_execpolicy_amendment: None,
-                proposed_network_policy_amendments: None,
-                additional_permissions: None,
-                available_decisions: Some(vec![ReviewDecision::Approved, ReviewDecision::Abort]),
-                parsed_cmd: vec![ParsedCommand::Unknown {
+            EventMsg::ExecApprovalRequest(test_fixtures::exec_approval_request(
+                "call-id",
+                "turn-id",
+                std::env::current_dir()?.try_into()?,
+                vec!["echo".to_string(), "hi".to_string()],
+                vec![ParsedCommand::Unknown {
                     cmd: "echo hi".to_string(),
                 }],
-            }),
+                Some(vec![ReviewDecision::Approved, ReviewDecision::Abort]),
+            )),
         )
         .await;
 
@@ -476,14 +455,12 @@ async fn test_full_access_auto_approves_patch_permission_requests() -> anyhow::R
     actor
         .handle_event(Event {
             id: "submission-id".to_string(),
-            msg: EventMsg::ApplyPatchApprovalRequest(ApplyPatchApprovalRequestEvent {
-                call_id: "patch-call".to_string(),
-                turn_id: "turn-id".to_string(),
+            msg: EventMsg::ApplyPatchApprovalRequest(test_fixtures::apply_patch_approval_request(
+                "patch-call",
+                "turn-id",
                 changes,
-                reason: None,
-                grant_root: None,
-                started_at_ms: 0,
-            }),
+                None,
+            )),
         })
         .await;
 

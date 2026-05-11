@@ -193,8 +193,8 @@ impl<A: Auth> ThreadActor<A> {
             "plan" => {
                 let trimmed = rest.trim().to_string();
                 if matches!(trimmed.as_str(), "" | "on") {
-                    self.apply_collaboration_mode_kind(ModeKind::Plan).await?;
-                    self.maybe_emit_config_options_update().await;
+                    self.switch_collaboration_mode_and_emit(ModeKind::Plan)
+                        .await?;
                     return Ok(PromptSubmission::Handled {
                         message: "Plan mode enabled. Future turns will run in plan mode until you switch back with `/plan off`."
                             .to_string(),
@@ -202,17 +202,16 @@ impl<A: Auth> ThreadActor<A> {
                 }
 
                 if matches!(trimmed.as_str(), "off" | "default" | "code") {
-                    self.apply_collaboration_mode_kind(ModeKind::Default)
+                    self.switch_collaboration_mode_and_emit(ModeKind::Default)
                         .await?;
-                    self.maybe_emit_config_options_update().await;
                     return Ok(PromptSubmission::Handled {
                         message: "Plan mode disabled. Future turns will run in default mode."
                             .to_string(),
                     });
                 }
 
-                self.apply_collaboration_mode_kind(ModeKind::Plan).await?;
-                self.maybe_emit_config_options_update().await;
+                self.switch_collaboration_mode_and_emit(ModeKind::Plan)
+                    .await?;
                 replace_first_text_item(&mut items, trimmed);
                 op::user_input(items)
             }
@@ -224,6 +223,12 @@ impl<A: Auth> ThreadActor<A> {
         };
 
         Ok(PromptSubmission::Submit { op: Box::new(op) })
+    }
+
+    async fn switch_collaboration_mode_and_emit(&mut self, kind: ModeKind) -> Result<(), Error> {
+        self.apply_collaboration_mode_kind(kind).await?;
+        self.maybe_emit_config_options_update().await;
+        Ok(())
     }
 
     fn default_review_target(&self) -> ReviewTarget {

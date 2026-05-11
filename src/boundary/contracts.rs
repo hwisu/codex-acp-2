@@ -73,15 +73,19 @@ fn acp_agent_does_not_advertise_unimplemented_enabled_sdk_methods() {
 
 #[test]
 fn readmes_expose_current_acp_support_summary_at_the_top() {
+    let version = env!("CARGO_PKG_VERSION");
     for readme in ["README.md", "README.ko.md"] {
         let path = Path::new(env!("CARGO_MANIFEST_DIR")).join(readme);
         let source = fs::read_to_string(&path).expect("read README");
+        let top = source.lines().take(5).collect::<Vec<_>>().join("\n");
 
         assert!(
-            source.contains("## Codex 최신 스펙 구현")
-                && source.contains("## Zed에서 실행")
-                && source.contains("## Toad에서 실행"),
-            "{readme} must stay focused on the current spec plus Zed/Toad usage"
+            top.contains(version)
+                && top.contains("12/12")
+                && top.contains("12/14")
+                && top.contains("session/fork")
+                && top.contains("session/resume"),
+            "{readme} must expose the current ACP support summary near the top"
         );
     }
 }
@@ -89,9 +93,14 @@ fn readmes_expose_current_acp_support_summary_at_the_top() {
 #[test]
 fn readmes_expose_upstream_acp_and_codex_versions() {
     let required = [
+        "https://github.com/agentclientprotocol/codex-acp",
+        "@agentclientprotocol/codex-acp = 0.0.43",
+        "https://crates.io/crates/agent-client-protocol",
+        "https://github.com/agentclientprotocol/rust-sdk",
         "agent-client-protocol = 0.11.1",
         "agent-client-protocol-schema = 0.12.0",
-        "rust-v0.130.0",
+        "https://github.com/openai/codex/tree/rust-v0.130.0/codex-rs",
+        "58573da43ab697e8b79f152c53df4b42230395a8",
     ];
 
     for readme in ["README.md", "README.ko.md"] {

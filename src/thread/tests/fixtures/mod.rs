@@ -52,10 +52,8 @@ pub(super) use codex_protocol::parse_command::ParsedCommand;
 pub(super) use codex_protocol::plan_tool::{PlanItemArg, StepStatus, UpdatePlanArgs};
 pub(super) use codex_protocol::protocol::{
     AgentMessageContentDeltaEvent, AgentMessageEvent, AgentReasoningEvent,
-    AgentReasoningSectionBreakEvent, ApplyPatchApprovalRequestEvent, CollabAgentSpawnBeginEvent,
-    CollabAgentSpawnEndEvent, ElicitationAction, Event, EventMsg, ExecApprovalRequestEvent,
-    ExecCommandBeginEvent, ExecCommandEndEvent, ExecCommandOutputDeltaEvent, ExecCommandSource,
-    ExecCommandStatus, ExitedReviewModeEvent, FileChange, ImageGenerationBeginEvent,
+    AgentReasoningSectionBreakEvent, ElicitationAction, Event, EventMsg,
+    ExecCommandOutputDeltaEvent, ExitedReviewModeEvent, FileChange, ImageGenerationBeginEvent,
     ImageGenerationEndEvent, Op, RateLimitSnapshot, ReasoningContentDeltaEvent, ReviewDecision,
     ReviewOutputEvent, ReviewRequest, ReviewTarget, RolloutItem, ThreadGoal, ThreadGoalStatus,
     ThreadGoalUpdatedEvent, TokenCountEvent, TokenUsageInfo, TurnAbortedEvent, TurnCompleteEvent,
@@ -75,6 +73,7 @@ pub(super) use crate::guardian::{guardian_action_summary, guardian_assessment_co
 pub(super) use crate::session_mode::{
     CODEX_WORKSPACE_PROFILE_ID, current_session_mode_id, mode_trusts_project,
 };
+pub(super) use crate::test_fixtures;
 pub(super) use crate::thread::actor::{ThreadActor, ThreadActorInit};
 pub(super) use crate::thread::approvals::{
     MCP_TOOL_APPROVAL_ALLOW_ALWAYS_OPTION_ID, MCP_TOOL_APPROVAL_ALLOW_OPTION_ID,
@@ -89,3 +88,4 @@ pub(super) use crate::thread::model_picker::filter_model_presets_for_picker;
 pub(super) use crate::thread::submission::{PromptState, SubmissionState};
 pub(super) use crate::thread::{INIT_COMMAND_PROMPT, Thread, ThreadMessage};
 pub(super) use crate::user_input::REQUEST_USER_INPUT_OTHER_OPTION_LABEL;
+pub(super) use codex_utils_absolute_path::AbsolutePathBuf;

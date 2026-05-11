@@ -400,42 +400,27 @@ async fn test_rg_exec_completion_does_not_embed_terminal() -> anyhow::Result<()>
     prompt_state
         .handle_event(
             &session_client,
-            EventMsg::ExecCommandBegin(ExecCommandBeginEvent {
-                call_id: "call-id".to_string(),
-                process_id: None,
-                turn_id: "turn-id".to_string(),
-                started_at_ms: 0,
-                command: vec!["rg".to_string(), "Search".to_string(), "src".to_string()],
-                cwd: cwd.clone().try_into()?,
-                parsed_cmd: vec![ParsedCommand::Unknown {
+            EventMsg::ExecCommandBegin(test_fixtures::exec_command_begin(
+                "call-id",
+                "turn-id",
+                cwd.clone().try_into()?,
+                vec!["rg".to_string(), "Search".to_string(), "src".to_string()],
+                vec![ParsedCommand::Unknown {
                     cmd: "rg Search src".to_string(),
                 }],
-                source: ExecCommandSource::default(),
-                interaction_input: None,
-            }),
+            )),
         )
         .await;
     prompt_state
         .handle_event(
             &session_client,
-            EventMsg::ExecCommandEnd(ExecCommandEndEvent {
-                call_id: "call-id".to_string(),
-                process_id: None,
-                turn_id: "turn-id".to_string(),
-                completed_at_ms: 0,
-                command: vec!["rg".to_string(), "Search".to_string(), "src".to_string()],
-                cwd: cwd.try_into()?,
-                parsed_cmd: vec![],
-                source: ExecCommandSource::default(),
-                interaction_input: None,
-                stdout: "src/permission.rs:Search result\n".to_string(),
-                stderr: String::new(),
-                aggregated_output: "src/permission.rs:Search result\n".to_string(),
-                exit_code: 0,
-                duration: Duration::from_millis(1),
-                formatted_output: "src/permission.rs:Search result\n".to_string(),
-                status: ExecCommandStatus::Completed,
-            }),
+            EventMsg::ExecCommandEnd(test_fixtures::exec_command_end(
+                "call-id",
+                "turn-id",
+                cwd.try_into()?,
+                vec!["rg".to_string(), "Search".to_string(), "src".to_string()],
+                "src/permission.rs:Search result\n",
+            )),
         )
         .await;
 
@@ -630,52 +615,37 @@ index 1111111..2222222 100644
     prompt_state
         .handle_event(
             &session_client,
-            EventMsg::ExecCommandBegin(ExecCommandBeginEvent {
-                call_id: "call-id".to_string(),
-                process_id: None,
-                turn_id: "turn-id".to_string(),
-                started_at_ms: 0,
-                command: vec![
+            EventMsg::ExecCommandBegin(test_fixtures::exec_command_begin(
+                "call-id",
+                "turn-id",
+                cwd.clone().try_into()?,
+                vec![
                     "git".to_string(),
                     "diff".to_string(),
                     "--".to_string(),
                     "src/lib.rs".to_string(),
                 ],
-                cwd: cwd.clone().try_into()?,
-                parsed_cmd: vec![ParsedCommand::Unknown {
+                vec![ParsedCommand::Unknown {
                     cmd: "git diff -- src/lib.rs".to_string(),
                 }],
-                source: ExecCommandSource::default(),
-                interaction_input: None,
-            }),
+            )),
         )
         .await;
     prompt_state
         .handle_event(
             &session_client,
-            EventMsg::ExecCommandEnd(ExecCommandEndEvent {
-                call_id: "call-id".to_string(),
-                process_id: None,
-                turn_id: "turn-id".to_string(),
-                completed_at_ms: 0,
-                command: vec![
+            EventMsg::ExecCommandEnd(test_fixtures::exec_command_end(
+                "call-id",
+                "turn-id",
+                cwd.try_into()?,
+                vec![
                     "git".to_string(),
                     "diff".to_string(),
                     "--".to_string(),
                     "src/lib.rs".to_string(),
                 ],
-                cwd: cwd.try_into()?,
-                parsed_cmd: vec![],
-                source: ExecCommandSource::default(),
-                interaction_input: None,
-                stdout: diff_output.to_string(),
-                stderr: String::new(),
-                aggregated_output: diff_output.to_string(),
-                exit_code: 0,
-                duration: Duration::from_millis(1),
-                formatted_output: diff_output.to_string(),
-                status: ExecCommandStatus::Completed,
-            }),
+                diff_output,
+            )),
         )
         .await;
 
@@ -727,19 +697,15 @@ async fn test_zed_client_keeps_terminal_meta_streaming() -> anyhow::Result<()> {
     prompt_state
         .handle_event(
             &session_client,
-            EventMsg::ExecCommandBegin(ExecCommandBeginEvent {
-                call_id: "call-id".to_string(),
-                process_id: None,
-                turn_id: "turn-id".to_string(),
-                started_at_ms: 0,
-                command: vec!["echo".to_string(), "hello".to_string()],
-                cwd: cwd.clone().try_into()?,
-                parsed_cmd: vec![ParsedCommand::Unknown {
+            EventMsg::ExecCommandBegin(test_fixtures::exec_command_begin(
+                "call-id",
+                "turn-id",
+                cwd.clone().try_into()?,
+                vec!["echo".to_string(), "hello".to_string()],
+                vec![ParsedCommand::Unknown {
                     cmd: "echo hello".to_string(),
                 }],
-                source: ExecCommandSource::default(),
-                interaction_input: None,
-            }),
+            )),
         )
         .await;
     prompt_state
@@ -755,24 +721,13 @@ async fn test_zed_client_keeps_terminal_meta_streaming() -> anyhow::Result<()> {
     prompt_state
         .handle_event(
             &session_client,
-            EventMsg::ExecCommandEnd(ExecCommandEndEvent {
-                call_id: "call-id".to_string(),
-                process_id: None,
-                turn_id: "turn-id".to_string(),
-                completed_at_ms: 0,
-                command: vec!["echo".to_string(), "hello".to_string()],
-                cwd: cwd.try_into()?,
-                parsed_cmd: vec![],
-                source: ExecCommandSource::default(),
-                interaction_input: None,
-                stdout: "hello\n".to_string(),
-                stderr: String::new(),
-                aggregated_output: "hello\n".to_string(),
-                exit_code: 0,
-                duration: Duration::from_millis(1),
-                formatted_output: "hello\n".to_string(),
-                status: ExecCommandStatus::Completed,
-            }),
+            EventMsg::ExecCommandEnd(test_fixtures::exec_command_end(
+                "call-id",
+                "turn-id",
+                cwd.try_into()?,
+                vec!["echo".to_string(), "hello".to_string()],
+                "hello\n",
+            )),
         )
         .await;
 
@@ -871,42 +826,27 @@ async fn test_zed_client_replays_completion_output_without_delta() -> anyhow::Re
     prompt_state
         .handle_event(
             &session_client,
-            EventMsg::ExecCommandBegin(ExecCommandBeginEvent {
-                call_id: "call-id".to_string(),
-                process_id: None,
-                turn_id: "turn-id".to_string(),
-                started_at_ms: 0,
-                command: vec!["date".to_string()],
-                cwd: cwd.try_into()?,
-                parsed_cmd: vec![ParsedCommand::Unknown {
+            EventMsg::ExecCommandBegin(test_fixtures::exec_command_begin(
+                "call-id",
+                "turn-id",
+                cwd.try_into()?,
+                vec!["date".to_string()],
+                vec![ParsedCommand::Unknown {
                     cmd: "date".to_string(),
                 }],
-                source: ExecCommandSource::default(),
-                interaction_input: None,
-            }),
+            )),
         )
         .await;
     prompt_state
         .handle_event(
             &session_client,
-            EventMsg::ExecCommandEnd(ExecCommandEndEvent {
-                call_id: "call-id".to_string(),
-                process_id: None,
-                turn_id: "turn-id".to_string(),
-                completed_at_ms: 0,
-                command: vec!["date".to_string()],
-                cwd: std::env::current_dir()?.try_into()?,
-                parsed_cmd: vec![],
-                source: ExecCommandSource::default(),
-                interaction_input: None,
-                stdout: "hello\n".to_string(),
-                stderr: String::new(),
-                aggregated_output: "hello\n".to_string(),
-                exit_code: 0,
-                duration: Duration::from_millis(1),
-                formatted_output: "hello\n".to_string(),
-                status: ExecCommandStatus::Completed,
-            }),
+            EventMsg::ExecCommandEnd(test_fixtures::exec_command_end(
+                "call-id",
+                "turn-id",
+                std::env::current_dir()?.try_into()?,
+                vec!["date".to_string()],
+                "hello\n",
+            )),
         )
         .await;
 
@@ -988,19 +928,15 @@ async fn test_terminal_capability_falls_back_to_content_snapshots() -> anyhow::R
     prompt_state
         .handle_event(
             &session_client,
-            EventMsg::ExecCommandBegin(ExecCommandBeginEvent {
-                call_id: "call-id".to_string(),
-                process_id: None,
-                turn_id: "turn-id".to_string(),
-                started_at_ms: 0,
-                command: vec!["echo".to_string(), "hello".to_string()],
-                cwd: cwd.clone().try_into()?,
-                parsed_cmd: vec![ParsedCommand::Unknown {
+            EventMsg::ExecCommandBegin(test_fixtures::exec_command_begin(
+                "call-id",
+                "turn-id",
+                cwd.clone().try_into()?,
+                vec!["echo".to_string(), "hello".to_string()],
+                vec![ParsedCommand::Unknown {
                     cmd: "echo hello".to_string(),
                 }],
-                source: ExecCommandSource::default(),
-                interaction_input: None,
-            }),
+            )),
         )
         .await;
     prompt_state
@@ -1016,24 +952,13 @@ async fn test_terminal_capability_falls_back_to_content_snapshots() -> anyhow::R
     prompt_state
         .handle_event(
             &session_client,
-            EventMsg::ExecCommandEnd(ExecCommandEndEvent {
-                call_id: "call-id".to_string(),
-                process_id: None,
-                turn_id: "turn-id".to_string(),
-                completed_at_ms: 0,
-                command: vec!["echo".to_string(), "hello".to_string()],
-                cwd: cwd.try_into()?,
-                parsed_cmd: vec![],
-                source: ExecCommandSource::default(),
-                interaction_input: None,
-                stdout: "hello\n".to_string(),
-                stderr: String::new(),
-                aggregated_output: "hello\n".to_string(),
-                exit_code: 0,
-                duration: Duration::from_millis(1),
-                formatted_output: "hello\n".to_string(),
-                status: ExecCommandStatus::Completed,
-            }),
+            EventMsg::ExecCommandEnd(test_fixtures::exec_command_end(
+                "call-id",
+                "turn-id",
+                cwd.try_into()?,
+                vec!["echo".to_string(), "hello".to_string()],
+                "hello\n",
+            )),
         )
         .await;
 
@@ -1095,19 +1020,15 @@ async fn test_non_terminal_exec_completion_includes_output_snapshot() -> anyhow:
     prompt_state
         .handle_event(
             &session_client,
-            EventMsg::ExecCommandBegin(ExecCommandBeginEvent {
-                call_id: "call-id".to_string(),
-                process_id: None,
-                turn_id: "turn-id".to_string(),
-                started_at_ms: 0,
-                command: vec!["echo".to_string(), "hello".to_string()],
-                cwd: cwd.clone().try_into()?,
-                parsed_cmd: vec![ParsedCommand::Unknown {
+            EventMsg::ExecCommandBegin(test_fixtures::exec_command_begin(
+                "call-id",
+                "turn-id",
+                cwd.clone().try_into()?,
+                vec!["echo".to_string(), "hello".to_string()],
+                vec![ParsedCommand::Unknown {
                     cmd: "echo hello".to_string(),
                 }],
-                source: ExecCommandSource::default(),
-                interaction_input: None,
-            }),
+            )),
         )
         .await;
     prompt_state
@@ -1123,24 +1044,13 @@ async fn test_non_terminal_exec_completion_includes_output_snapshot() -> anyhow:
     prompt_state
         .handle_event(
             &session_client,
-            EventMsg::ExecCommandEnd(ExecCommandEndEvent {
-                call_id: "call-id".to_string(),
-                process_id: None,
-                turn_id: "turn-id".to_string(),
-                completed_at_ms: 0,
-                command: vec!["echo".to_string(), "hello".to_string()],
-                cwd: cwd.try_into()?,
-                parsed_cmd: vec![],
-                source: ExecCommandSource::default(),
-                interaction_input: None,
-                stdout: "hello\n".to_string(),
-                stderr: String::new(),
-                aggregated_output: "hello\n".to_string(),
-                exit_code: 0,
-                duration: Duration::from_millis(1),
-                formatted_output: "hello\n".to_string(),
-                status: ExecCommandStatus::Completed,
-            }),
+            EventMsg::ExecCommandEnd(test_fixtures::exec_command_end(
+                "call-id",
+                "turn-id",
+                cwd.try_into()?,
+                vec!["echo".to_string(), "hello".to_string()],
+                "hello\n",
+            )),
         )
         .await;
 
@@ -1215,42 +1125,27 @@ async fn test_large_exec_output_is_folded_by_default() -> anyhow::Result<()> {
     prompt_state
         .handle_event(
             &session_client,
-            EventMsg::ExecCommandBegin(ExecCommandBeginEvent {
-                call_id: "call-id".to_string(),
-                process_id: None,
-                turn_id: "turn-id".to_string(),
-                started_at_ms: 0,
-                command: vec!["printf".to_string(), "lots".to_string()],
-                cwd: cwd.clone().try_into()?,
-                parsed_cmd: vec![ParsedCommand::Unknown {
+            EventMsg::ExecCommandBegin(test_fixtures::exec_command_begin(
+                "call-id",
+                "turn-id",
+                cwd.clone().try_into()?,
+                vec!["printf".to_string(), "lots".to_string()],
+                vec![ParsedCommand::Unknown {
                     cmd: "printf lots".to_string(),
                 }],
-                source: ExecCommandSource::default(),
-                interaction_input: None,
-            }),
+            )),
         )
         .await;
     prompt_state
         .handle_event(
             &session_client,
-            EventMsg::ExecCommandEnd(ExecCommandEndEvent {
-                call_id: "call-id".to_string(),
-                process_id: None,
-                turn_id: "turn-id".to_string(),
-                completed_at_ms: 0,
-                command: vec!["printf".to_string(), "lots".to_string()],
-                cwd: cwd.try_into()?,
-                parsed_cmd: vec![],
-                source: ExecCommandSource::default(),
-                interaction_input: None,
-                stdout: output.clone(),
-                stderr: String::new(),
-                aggregated_output: output.clone(),
-                exit_code: 0,
-                duration: Duration::from_millis(1),
-                formatted_output: output,
-                status: ExecCommandStatus::Completed,
-            }),
+            EventMsg::ExecCommandEnd(test_fixtures::exec_command_end(
+                "call-id",
+                "turn-id",
+                cwd.try_into()?,
+                vec!["printf".to_string(), "lots".to_string()],
+                output,
+            )),
         )
         .await;
 
@@ -1286,54 +1181,39 @@ async fn test_read_exec_completion_uses_canonical_rust_fence() -> anyhow::Result
     prompt_state
         .handle_event(
             &session_client,
-            EventMsg::ExecCommandBegin(ExecCommandBeginEvent {
-                call_id: "call-id".to_string(),
-                process_id: None,
-                turn_id: "turn-id".to_string(),
-                started_at_ms: 0,
-                command: vec![
+            EventMsg::ExecCommandBegin(test_fixtures::exec_command_begin(
+                "call-id",
+                "turn-id",
+                cwd.clone().try_into()?,
+                vec![
                     "sed".to_string(),
                     "-n".to_string(),
                     "1,120p".to_string(),
                     "src/foo.rs".to_string(),
                 ],
-                cwd: cwd.clone().try_into()?,
-                parsed_cmd: vec![ParsedCommand::Read {
+                vec![ParsedCommand::Read {
                     cmd: "sed -n '1,120p' src/foo.rs".to_string(),
                     name: "src/foo.rs".to_string(),
                     path: read_path,
                 }],
-                source: ExecCommandSource::default(),
-                interaction_input: None,
-            }),
+            )),
         )
         .await;
     prompt_state
         .handle_event(
             &session_client,
-            EventMsg::ExecCommandEnd(ExecCommandEndEvent {
-                call_id: "call-id".to_string(),
-                process_id: None,
-                turn_id: "turn-id".to_string(),
-                completed_at_ms: 0,
-                command: vec![
+            EventMsg::ExecCommandEnd(test_fixtures::exec_command_end(
+                "call-id",
+                "turn-id",
+                cwd.try_into()?,
+                vec![
                     "sed".to_string(),
                     "-n".to_string(),
                     "1,120p".to_string(),
                     "src/foo.rs".to_string(),
                 ],
-                cwd: cwd.try_into()?,
-                parsed_cmd: vec![],
-                source: ExecCommandSource::default(),
-                interaction_input: None,
-                stdout: "fn main() {}\n".to_string(),
-                stderr: String::new(),
-                aggregated_output: "fn main() {}\n".to_string(),
-                exit_code: 0,
-                duration: Duration::from_millis(1),
-                formatted_output: "fn main() {}\n".to_string(),
-                status: ExecCommandStatus::Completed,
-            }),
+                "fn main() {}\n",
+            )),
         )
         .await;
 

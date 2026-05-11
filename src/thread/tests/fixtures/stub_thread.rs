@@ -100,81 +100,49 @@ impl StubCodexThread {
     fn emit_parallel_exec(&self, id: usize) {
         // Emit interleaved exec events: Begin A, Begin B, End A, End B
         let turn_id = id.to_string();
-        let cwd = fixture_cwd();
+        let cwd: AbsolutePathBuf = fixture_absolute_path(fixture_cwd());
         self.send_event(
             id,
-            EventMsg::ExecCommandBegin(ExecCommandBeginEvent {
-                call_id: "call-a".into(),
-                process_id: None,
-                turn_id: turn_id.clone(),
-                started_at_ms: 0,
-                command: vec!["echo".into(), "a".into()],
-                cwd: fixture_absolute_path(cwd.clone()),
-                parsed_cmd: vec![ParsedCommand::Unknown {
+            EventMsg::ExecCommandBegin(test_fixtures::exec_command_begin(
+                "call-a",
+                turn_id.clone(),
+                cwd.clone(),
+                vec!["echo".into(), "a".into()],
+                vec![ParsedCommand::Unknown {
                     cmd: "echo a".into(),
                 }],
-                source: ExecCommandSource::default(),
-                interaction_input: None,
-            }),
+            )),
         );
         self.send_event(
             id,
-            EventMsg::ExecCommandBegin(ExecCommandBeginEvent {
-                call_id: "call-b".into(),
-                process_id: None,
-                turn_id: turn_id.clone(),
-                started_at_ms: 0,
-                command: vec!["echo".into(), "b".into()],
-                cwd: fixture_absolute_path(cwd.clone()),
-                parsed_cmd: vec![ParsedCommand::Unknown {
+            EventMsg::ExecCommandBegin(test_fixtures::exec_command_begin(
+                "call-b",
+                turn_id.clone(),
+                cwd.clone(),
+                vec!["echo".into(), "b".into()],
+                vec![ParsedCommand::Unknown {
                     cmd: "echo b".into(),
                 }],
-                source: ExecCommandSource::default(),
-                interaction_input: None,
-            }),
+            )),
         );
-        self.send_event(
-            id,
-            EventMsg::ExecCommandEnd(ExecCommandEndEvent {
-                call_id: "call-a".into(),
-                process_id: None,
-                turn_id: turn_id.clone(),
-                completed_at_ms: 0,
-                command: vec!["echo".into(), "a".into()],
-                cwd: fixture_absolute_path(cwd.clone()),
-                parsed_cmd: vec![],
-                source: ExecCommandSource::default(),
-                interaction_input: None,
-                stdout: "a\n".into(),
-                stderr: String::new(),
-                aggregated_output: "a\n".into(),
-                exit_code: 0,
-                duration: std::time::Duration::from_millis(10),
-                formatted_output: "a\n".into(),
-                status: ExecCommandStatus::Completed,
-            }),
+        let mut end_a = test_fixtures::exec_command_end(
+            "call-a",
+            turn_id.clone(),
+            cwd.clone(),
+            vec!["echo".into(), "a".into()],
+            "a\n",
         );
-        self.send_event(
-            id,
-            EventMsg::ExecCommandEnd(ExecCommandEndEvent {
-                call_id: "call-b".into(),
-                process_id: None,
-                turn_id: turn_id.clone(),
-                completed_at_ms: 0,
-                command: vec!["echo".into(), "b".into()],
-                cwd: fixture_absolute_path(cwd.clone()),
-                parsed_cmd: vec![],
-                source: ExecCommandSource::default(),
-                interaction_input: None,
-                stdout: "b\n".into(),
-                stderr: String::new(),
-                aggregated_output: "b\n".into(),
-                exit_code: 0,
-                duration: std::time::Duration::from_millis(10),
-                formatted_output: "b\n".into(),
-                status: ExecCommandStatus::Completed,
-            }),
+        end_a.duration = std::time::Duration::from_millis(10);
+        self.send_event(id, EventMsg::ExecCommandEnd(end_a));
+        let mut end_b = test_fixtures::exec_command_end(
+            "call-b",
+            turn_id.clone(),
+            cwd,
+            vec!["echo".into(), "b".into()],
+            "b\n",
         );
+        end_b.duration = std::time::Duration::from_millis(10);
+        self.send_event(id, EventMsg::ExecCommandEnd(end_b));
         self.send_turn_complete(id, turn_id);
     }
 
@@ -204,23 +172,16 @@ impl StubCodexThread {
     fn emit_approval_block(&self, id: usize) {
         self.send_event(
             id,
-            EventMsg::ExecApprovalRequest(ExecApprovalRequestEvent {
-                call_id: "call-id".to_string(),
-                approval_id: Some("approval-id".to_string()),
-                turn_id: id.to_string(),
-                command: vec!["echo".to_string(), "hi".to_string()],
-                cwd: fixture_absolute_path(fixture_cwd()),
-                reason: None,
-                started_at_ms: 0,
-                network_approval_context: None,
-                proposed_execpolicy_amendment: None,
-                proposed_network_policy_amendments: None,
-                additional_permissions: None,
-                available_decisions: Some(vec![ReviewDecision::Approved, ReviewDecision::Abort]),
-                parsed_cmd: vec![ParsedCommand::Unknown {
+            EventMsg::ExecApprovalRequest(test_fixtures::exec_approval_request(
+                "call-id",
+                id.to_string(),
+                fixture_absolute_path(fixture_cwd()),
+                vec!["echo".to_string(), "hi".to_string()],
+                vec![ParsedCommand::Unknown {
                     cmd: "echo hi".to_string(),
                 }],
-            }),
+                Some(vec![ReviewDecision::Approved, ReviewDecision::Abort]),
+            )),
         );
     }
 
@@ -314,30 +275,25 @@ impl StubCodexThread {
         let receiver_thread_id = ThreadId::new();
         self.send_event(
             id,
-            EventMsg::CollabAgentSpawnBegin(CollabAgentSpawnBeginEvent {
-                call_id: "spawn-1".to_string(),
-                started_at_ms: 0,
+            EventMsg::CollabAgentSpawnBegin(test_fixtures::collab_spawn_begin(
+                "spawn-1",
                 sender_thread_id,
-                prompt: "Investigate parity gaps".to_string(),
-                model: "gpt-5.4".to_string(),
-                reasoning_effort: ReasoningEffort::Medium,
-            }),
+                "Investigate parity gaps",
+                "gpt-5.4",
+                ReasoningEffort::Medium,
+            )),
         );
-        self.send_event(
-            id,
-            EventMsg::CollabAgentSpawnEnd(CollabAgentSpawnEndEvent {
-                call_id: "spawn-1".to_string(),
-                completed_at_ms: 0,
-                sender_thread_id,
-                new_thread_id: Some(receiver_thread_id),
-                new_agent_nickname: Some("Parity Worker".to_string()),
-                new_agent_role: Some("worker".to_string()),
-                prompt: "Investigate parity gaps".to_string(),
-                model: "gpt-5.4".to_string(),
-                reasoning_effort: ReasoningEffort::Medium,
-                status: codex_protocol::protocol::AgentStatus::Running,
-            }),
+        let mut end = test_fixtures::collab_spawn_end(
+            "spawn-1",
+            sender_thread_id,
+            Some(receiver_thread_id),
+            "Investigate parity gaps",
+            "gpt-5.4",
+            ReasoningEffort::Medium,
         );
+        end.new_agent_nickname = Some("Parity Worker".to_string());
+        end.new_agent_role = Some("worker".to_string());
+        self.send_event(id, EventMsg::CollabAgentSpawnEnd(end));
         self.send_turn_complete(id, id.to_string());
     }
 

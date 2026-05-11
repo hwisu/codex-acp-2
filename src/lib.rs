@@ -14,6 +14,8 @@ mod codex_agent;
 mod display;
 mod guardian;
 mod session_mode;
+#[cfg(test)]
+mod test_fixtures;
 mod thread;
 mod user_input;
 

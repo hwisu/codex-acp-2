@@ -1,6 +1,6 @@
 [package]
 name = "codex-acp"
-version = "0.13.1"
+version = "0.130.0"
 edition = "2024"
 authors = ["codex-acp-2 contributors"]
 license = "Apache-2.0"
@@ -64,6 +64,9 @@ tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 heck = "0.5.0"
 unicode-segmentation = "1.11.0"
 uuid = { version = "1", features = ["v4"] }
+
+[dev-dependencies]
+codex-utils-absolute-path = { git = "https://github.com/openai/codex", tag = "rust-v0.130.0" }
 
 [lints.rust]
 let-underscore = "warn"

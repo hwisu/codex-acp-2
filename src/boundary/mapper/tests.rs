@@ -100,16 +100,13 @@ fn plans_actor_owned_request_user_input() {
 
 #[test]
 fn plans_full_access_patch_auto_approval_as_submit_op() {
-    let event = EventMsg::ApplyPatchApprovalRequest(
-        codex_protocol::protocol::ApplyPatchApprovalRequestEvent {
-            call_id: "patch-call".to_string(),
-            turn_id: "turn".to_string(),
-            changes: std::collections::HashMap::new(),
-            reason: None,
-            grant_root: None,
-            started_at_ms: 0,
-        },
-    );
+    let event =
+        EventMsg::ApplyPatchApprovalRequest(crate::test_fixtures::apply_patch_approval_request(
+            "patch-call",
+            "turn",
+            std::collections::HashMap::new(),
+            None,
+        ));
 
     let plan = plan_actor_event(&event);
     let ActorEventAction::RouteToSubmission {

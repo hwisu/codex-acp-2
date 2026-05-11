@@ -1,78 +1,126 @@
 # codex-acp-2
 
-Codex 최신 Rust 런타임을 ACP stdio agent로 노출하는 로컬 어댑터입니다.
+Codex ACP version: `0.130.0` · ACP contract: `100%` advertised (`12/12` handlers), `86%` enabled SDK surface (`12/14`; `session/fork` and `session/resume` are not advertised)
 
-## Codex 최신 스펙 구현
+[Korean](README.ko.md)
 
-- Codex Rust crates: `openai/codex` `rust-v0.130.0`
-- ACP SDK: `agent-client-protocol = 0.11.1` with `unstable`
-- ACP schema: `agent-client-protocol-schema = 0.12.0`
-- Binary: `codex-acp`
-- Transport: stdio
+`codex-acp-2` is a Rust stdio [Agent Client Protocol](https://agentclientprotocol.com)
+adapter for the Codex runtime. ACP-compatible clients run Codex sessions through
+it without going through the Codex TUI.
 
-구현된 주요 ACP surface:
+## Update Principles
 
-- `initialize`
-- `authenticate`, `logout`
-- `session/new`, `session/load`, `session/list`, `session/close`
-- `session/prompt`, `session/cancel`
-- `session/set_mode`
-- `session/set_model`
-- `session/set_config_option`
+This fork tracks upstream Codex releases under three rules:
 
-Codex 최신 slash command surface에 맞춰 `/goal`은 기본 활성화되어 ACP client에 광고됩니다.
+1. **Respect the latest Codex implementation.** Behavior follows Codex
+   semantics; the dependency tag moves whenever upstream releases.
+2. **Map to ACP wherever a matching concept exists.** Sessions, prompts, tool
+   calls, permissions, plans, and diffs are surfaced through native ACP shapes.
+3. **Work around the gap when ACP has no concept** so users keep full
+   functionality. Examples: `/usage`, `/status`, `/ps`, `/permissions`,
+   `/agent`, `/plan`, `/goal` are bridged as slash commands and `_meta`
+   extensions instead of bespoke ACP methods.
 
-릴리즈 바이너리 빌드:
+## Pinned Versions
+
+- Codex Rust crates: [`openai/codex`](https://github.com/openai/codex/tree/rust-v0.130.0/codex-rs)
+  at tag `rust-v0.130.0` (`58573da43ab697e8b79f152c53df4b42230395a8` in `Cargo.lock`)
+- ACP Rust SDK: [`agent-client-protocol`](https://crates.io/crates/agent-client-protocol)
+  from [`agentclientprotocol/rust-sdk`](https://github.com/agentclientprotocol/rust-sdk) -
+  `agent-client-protocol = 0.11.1` with `unstable`
+  (`agent-client-protocol-schema = 0.12.0` via lockfile)
+- Official Codex ACP adapter reference:
+  [`agentclientprotocol/codex-acp`](https://github.com/agentclientprotocol/codex-acp),
+  npm `@agentclientprotocol/codex-acp = 0.0.43`
+
+## Features
+
+- Codex-backed ACP sessions: create, load, list, close, replay
+- Text, resource, link, and image prompt blocks
+- Streaming messages, reasoning, tool calls, and background status
+- Shell command approval/output and apply-patch edit rendering
+- Client-provided MCP servers (HTTP, stdio; SSE ignored)
+- Session config: model, reasoning effort, approval preset, service tier,
+  collaboration mode
+- Slash commands: `/review`, `/status`, `/usage`, `/permissions`, `/agent`,
+  `/ps`, `/undo`, `/plan`, `/goal`, `/fast`, `/logout`
+
+Terminal output uses an ACP `_meta` compatibility extension. Zed picks it up
+automatically; other clients can set
+`CODEX_ACP_ENABLE_EXPERIMENTAL_TERMINAL_OUTPUT=1`
+(or `CODEX_ACP_DISABLE_TERMINAL_OUTPUT=1` to opt out).
+
+## Build And Run
 
 ```sh
 cargo build --release
+./target/release/codex-acp
 ```
 
-실행 파일:
+Auth also accepts ChatGPT browser login and `CODEX_API_KEY`. For the npm
+launcher with a local binary:
 
 ```sh
-/Users/hwisookim/codex-acp-2/target/release/codex-acp
+CODEX_ACP_BIN="$PWD/target/release/codex-acp" node npm/bin/codex-acp.js
 ```
 
-## Zed에서 실행
+If platform binaries are published: `npx @hwisu/codex-acp`.
 
-`~/.config/zed/settings.json`의 `agent_servers`에 로컬 바이너리를 지정합니다.
+## Zed
+
+Point `agent_servers` in `~/.config/zed/settings.json` at the release binary.
 
 ```json
 {
   "agent_servers": {
     "codex-acp": {
-      "command": "/Users/hwisookim/codex-acp-2/target/release/codex-acp",
+      "command": "/absolute/path/to/codex-acp-2/target/release/codex-acp",
       "args": []
     }
   }
 }
 ```
 
-Zed를 재시작한 뒤 Agent Panel에서 `codex-acp`를 선택합니다.
+Restart Zed, then choose `codex-acp` in the Agent Panel.
 
-## Toad에서 실행
+## Toad
 
-직접 실행:
+Run the adapter directly:
 
 ```sh
-toad acp "/Users/hwisookim/codex-acp-2/target/release/codex-acp" /path/to/project
+toad acp "$PWD/target/release/codex-acp" /path/to/project
 ```
 
-Toad의 Codex 항목을 기본으로 쓰려면 Toad 내장 agent TOML의 `run_command`를 이 바이너리로 지정합니다.
+To use this adapter through Toad's built-in Codex entry, point the agent TOML
+`run_command` at the release binary:
 
 ```toml
-run_command."*" = "/Users/hwisookim/codex-acp-2/target/release/codex-acp"
+run_command."*" = "/absolute/path/to/codex-acp-2/target/release/codex-acp"
 ```
 
-현재 로컬 Toad 설정에서 수정한 파일:
-
-```sh
-/Users/hwisookim/.local/share/uv/tools/batrachian-toad/lib/python3.14/site-packages/toad/data/agents/openai.com.toml
-```
-
-이후 Toad UI에서 Codex를 선택하거나 아래처럼 실행합니다.
+Then select Codex in the Toad UI or run:
 
 ```sh
 toad run -a openai.com /path/to/project
 ```
+
+Compatibility notes live in
+[`docs/toad-compatibility-check.md`](docs/toad-compatibility-check.md).
+
+## Development
+
+```sh
+cargo fmt --all -- --check
+cargo test --all-targets
+cargo clippy --all-targets --all-features -- -D warnings
+bash npm/testing/validate.sh
+```
+
+Contract tests in `src/boundary/contracts.rs` intentionally fail when new Codex
+enum variants, direct wire-payload construction, or mapper fallbacks break the
+boundary design. Runtime flow lives in `src/thread/`; wire mapping in
+`src/boundary/`. Manual Zed checks: [`docs/zed-computer-use-check.md`](docs/zed-computer-use-check.md).
+
+## License
+
+Apache-2.0. See [`LICENSE`](LICENSE).

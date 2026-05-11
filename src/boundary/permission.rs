@@ -500,30 +500,24 @@ fn request_permissions_content(
 mod tests {
     use super::*;
 
-    use codex_protocol::{
-        parse_command::ParsedCommand,
-        protocol::{ExecApprovalRequestEvent, ReviewDecision},
-    };
+    use codex_protocol::{parse_command::ParsedCommand, protocol::ReviewDecision};
+
+    use crate::test_fixtures;
 
     #[test]
     fn exec_approval_interaction_builds_active_command_and_request() -> anyhow::Result<()> {
-        let interaction = exec_approval_interaction(ExecApprovalRequestEvent {
-            call_id: "exec-call".to_string(),
-            approval_id: Some("approval-id".to_string()),
-            turn_id: "turn-id".to_string(),
-            command: vec!["echo".to_string(), "hi".to_string()],
-            cwd: std::env::current_dir()?.try_into()?,
-            reason: Some("Need to run command".to_string()),
-            started_at_ms: 0,
-            network_approval_context: None,
-            proposed_execpolicy_amendment: None,
-            proposed_network_policy_amendments: None,
-            additional_permissions: None,
-            available_decisions: Some(vec![ReviewDecision::Approved, ReviewDecision::Denied]),
-            parsed_cmd: vec![ParsedCommand::Unknown {
+        let mut event = test_fixtures::exec_approval_request(
+            "exec-call",
+            "turn-id",
+            std::env::current_dir()?.try_into()?,
+            vec!["echo".to_string(), "hi".to_string()],
+            vec![ParsedCommand::Unknown {
                 cmd: "echo hi".to_string(),
             }],
-        })?;
+            Some(vec![ReviewDecision::Approved, ReviewDecision::Denied]),
+        );
+        event.reason = Some("Need to run command".to_string());
+        let interaction = exec_approval_interaction(event)?;
 
         assert_eq!(interaction.request_key, "exec:exec-call");
         assert_eq!(interaction.approval_id, "approval-id");
@@ -547,14 +541,12 @@ mod tests {
 
     #[test]
     fn patch_approval_interaction_uses_stable_options() {
-        let interaction = patch_approval_interaction(ApplyPatchApprovalRequestEvent {
-            call_id: "patch-call".to_string(),
-            turn_id: "turn-id".to_string(),
-            changes: HashMap::new(),
-            reason: Some("Need to edit files".to_string()),
-            grant_root: None,
-            started_at_ms: 0,
-        });
+        let interaction = patch_approval_interaction(test_fixtures::apply_patch_approval_request(
+            "patch-call",
+            "turn-id",
+            HashMap::new(),
+            Some("Need to edit files".to_string()),
+        ));
 
         assert_eq!(interaction.request_key, "patch:patch-call");
         assert_eq!(interaction.call_id, "patch-call");
@@ -604,14 +596,12 @@ mod tests {
 
     #[test]
     fn request_permissions_interaction_uses_stable_options() {
-        let interaction = request_permissions_interaction(RequestPermissionsEvent {
-            call_id: "permissions-call".to_string(),
-            turn_id: "turn-id".to_string(),
-            reason: Some("Need broader access".to_string()),
-            permissions: RequestPermissionProfile::default(),
-            cwd: None,
-            started_at_ms: 0,
-        });
+        let interaction = request_permissions_interaction(test_fixtures::request_permissions(
+            "permissions-call",
+            "turn-id",
+            Some("Need broader access".to_string()),
+            RequestPermissionProfile::default(),
+        ));
 
         assert_eq!(interaction.request_key, "permissions:permissions-call");
         assert_eq!(interaction.call_id, "permissions-call");
