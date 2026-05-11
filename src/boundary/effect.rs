@@ -1,18 +1,13 @@
-#![allow(dead_code)]
-
 use agent_client_protocol::schema::{
-    PermissionOption, RequestPermissionRequest, SessionId, SessionUpdate, ToolCall, ToolCallStatus,
-    ToolCallUpdate,
+    PermissionOption, RequestPermissionRequest, SessionId, SessionUpdate, ToolCall, ToolCallUpdate,
 };
-use codex_protocol::{
-    approvals::ElicitationAction,
-    protocol::{Op, ReviewDecision},
-};
+use codex_protocol::protocol::Op;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum BridgeEffectKind {
     Forward,
     RequestPermission,
+    #[allow(dead_code)]
     SubmitOp,
     Ignore(IgnoredCodexEventReason),
 }
@@ -20,6 +15,7 @@ pub(crate) enum BridgeEffectKind {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum BridgeEventContext {
     Live,
+    #[allow(dead_code)]
     Replay,
 }
 
@@ -76,30 +72,6 @@ impl BridgeEffect {
             request.options,
         ))
     }
-}
-
-pub(crate) enum ToolCallLifecycle {
-    Start,
-    Update,
-    Complete(ToolCallStatus),
-}
-
-pub(crate) enum ApprovalSelection {
-    Review(ReviewDecision),
-    McpElicitation {
-        action: ElicitationAction,
-        meta: Option<serde_json::Value>,
-    },
-}
-
-pub(crate) struct McpServerSpec {
-    pub(crate) name: String,
-    pub(crate) transport: McpServerTransportSpec,
-}
-
-pub(crate) enum McpServerTransportSpec {
-    Http,
-    Stdio,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
