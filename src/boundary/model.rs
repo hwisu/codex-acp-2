@@ -13,11 +13,6 @@ pub(crate) enum ModelIdParseError {
     InvalidReasoningEffort(String),
 }
 
-#[allow(dead_code)]
-pub(crate) fn canonical_model_id(model: &str, effort: ReasoningEffort) -> ModelId {
-    ModelId::new(format!("{model}[{effort}]"))
-}
-
 pub(crate) fn parse_compound_model_id(id: &ModelId) -> Option<ModelSelection> {
     is_compound_model_id_like(id.0.as_ref())
         .then(|| require_compound_model_id(id).ok())
@@ -110,16 +105,6 @@ mod tests {
         assert_eq!(
             require_compound_model_id(&ModelId::new("gpt-5.4[warp]")).unwrap_err(),
             ModelIdParseError::InvalidReasoningEffort("warp".to_string())
-        );
-    }
-
-    #[test]
-    fn encodes_canonical_model_id() {
-        assert_eq!(
-            canonical_model_id("gpt-5.4", ReasoningEffort::XHigh)
-                .0
-                .as_ref(),
-            "gpt-5.4[xhigh]"
         );
     }
 }
