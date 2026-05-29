@@ -21,6 +21,7 @@ pub(super) fn build_prompt_items(
             }),
             ContentBlock::Image(image_block) => Some(UserInput::Image {
                 image_url: format!("data:{};base64,{}", image_block.mime_type, image_block.data),
+                detail: None,
             }),
             ContentBlock::ResourceLink(ResourceLink { name, uri, .. }) => Some(UserInput::Text {
                 text: format_uri_as_link(Some(name), uri),
@@ -67,7 +68,10 @@ fn text_resource_to_user_input(
         && is_image_mime_type(mime_type)
     {
         if let Some(image_url) = file_uri_to_image_data_url(&uri, mime_type, file_resource_root) {
-            return UserInput::Image { image_url };
+            return UserInput::Image {
+                image_url,
+                detail: None,
+            };
         }
 
         return omitted_resource_marker(uri, Some(mime_type), "Image resource omitted");
@@ -96,6 +100,7 @@ fn blob_resource_to_user_input(blob: String, mime_type: Option<String>, uri: Str
     {
         return UserInput::Image {
             image_url: format!("data:{mime_type};base64,{blob}"),
+            detail: None,
         };
     }
 
@@ -247,7 +252,8 @@ mod tests {
         assert_eq!(
             items,
             vec![UserInput::Image {
-                image_url: "data:image/png;base64,iVBORw0KGgo=".to_string()
+                image_url: "data:image/png;base64,iVBORw0KGgo=".to_string(),
+                detail: None,
             }]
         );
     }
@@ -287,7 +293,8 @@ mod tests {
         assert_eq!(
             items,
             vec![UserInput::Image {
-                image_url: "data:image/png;base64,iVBORw==".to_string()
+                image_url: "data:image/png;base64,iVBORw==".to_string(),
+                detail: None,
             }]
         );
 

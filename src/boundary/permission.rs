@@ -477,7 +477,7 @@ fn request_permissions_content(
             file_system
                 .entries
                 .iter()
-                .filter(|entry| entry.access == FileSystemAccessMode::None),
+                .filter(|entry| entry.access == FileSystemAccessMode::Deny),
         );
         if !denies.is_empty() {
             content.push(format!("File System Denied Access: {denies}"));

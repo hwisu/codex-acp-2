@@ -29,8 +29,10 @@ fn classifies_user_message_by_context() {
     let event = EventMsg::UserMessage(codex_protocol::protocol::UserMessageEvent {
         message: "hello".to_string(),
         images: None,
+        image_details: Vec::new(),
         text_elements: Vec::new(),
         local_images: Vec::new(),
+        local_image_details: Vec::new(),
     });
 
     assert_eq!(

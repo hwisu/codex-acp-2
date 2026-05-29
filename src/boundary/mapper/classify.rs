@@ -62,8 +62,7 @@ pub(crate) fn classify_event_msg(
         | EventMsg::CollabCloseBegin(..)
         | EventMsg::CollabCloseEnd(..)
         | EventMsg::CollabResumeBegin(..)
-        | EventMsg::CollabResumeEnd(..)
-        | EventMsg::SkillsUpdateAvailable => Forward,
+        | EventMsg::CollabResumeEnd(..) => Forward,
 
         EventMsg::ExecApprovalRequest(..)
         | EventMsg::RequestPermissions(..)
@@ -84,7 +83,7 @@ pub(crate) fn classify_event_msg(
             BridgeEventContext::Replay => Forward,
         },
 
-        EventMsg::TurnStarted(..) => Ignore(StateOnly),
+        EventMsg::TurnStarted(..) | EventMsg::ThreadSettingsApplied(..) => Ignore(StateOnly),
         EventMsg::TurnAborted(TurnAbortedEvent { turn_id: None, .. }) => Ignore(LifecycleOnly),
         EventMsg::ItemStarted(..) | EventMsg::ItemCompleted(..) => Ignore(LifecycleOnly),
         EventMsg::SessionConfigured(..) => Ignore(LifecycleOnly),
@@ -128,9 +127,9 @@ pub(crate) fn classify_response_item(item: &ResponseItem) -> BridgeEffectKind {
         }
         ResponseItem::LocalShellCall { call_id: None, .. } => Ignore(MissingToolCallId),
         ResponseItem::ImageGenerationCall { .. } => Ignore(AlreadyRenderedByAnotherEvent),
-        ResponseItem::Compaction { .. } | ResponseItem::ContextCompaction { .. } => {
-            Ignore(StateOnly)
-        }
+        ResponseItem::Compaction { .. }
+        | ResponseItem::ContextCompaction { .. }
+        | ResponseItem::CompactionTrigger => Ignore(StateOnly),
         ResponseItem::ToolSearchCall { .. }
         | ResponseItem::ToolSearchOutput { .. }
         | ResponseItem::Other => Ignore(UnsupportedByAcp),

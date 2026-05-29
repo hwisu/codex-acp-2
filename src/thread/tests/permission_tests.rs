@@ -468,9 +468,11 @@ async fn test_full_access_auto_approves_patch_permission_requests() -> anyhow::R
     assert!(matches!(
         ops.as_slice(),
         [
-            Op::OverrideTurnContext {
-                permission_profile: Some(PermissionProfile::Disabled),
-                ..
+            Op::ThreadSettings {
+                thread_settings: ThreadSettingsOverrides {
+                    permission_profile: Some(PermissionProfile::Disabled),
+                    ..
+                },
             },
             Op::PatchApproval {
                 id,

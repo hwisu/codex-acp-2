@@ -53,9 +53,7 @@ async fn setup_with_config(
     );
     let conversation = Arc::new(StubCodexThread::new());
     let models_manager = Arc::new(StubModelsManager);
-    let mut config =
-        Config::load_with_cli_overrides_and_harness_overrides(vec![], ConfigOverrides::default())
-            .await?;
+    let mut config = load_test_config().await?;
     configure(&mut config)?;
     let (message_tx, message_rx) = tokio::sync::mpsc::unbounded_channel();
     let (resolution_tx, resolution_rx) = tokio::sync::mpsc::unbounded_channel();
@@ -97,15 +95,18 @@ pub(in crate::thread::tests) async fn setup_actor_with_fast_mode() -> anyhow::Re
 fn configure_fast_mode(config: &mut Config) -> anyhow::Result<()> {
     config.features.enable(Feature::FastMode)?;
     config.service_tier = None;
-    config.active_profile = None;
-    assign_test_codex_home(config)
+    Ok(())
 }
 
-fn assign_test_codex_home(config: &mut Config) -> anyhow::Result<()> {
+async fn load_test_config() -> anyhow::Result<Config> {
     let path = std::env::temp_dir().join(format!("codex-acp-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&path)?;
-    config.codex_home = path.try_into()?;
-    Ok(())
+    Ok(ConfigBuilder::default()
+        .codex_home(path)
+        .harness_overrides(ConfigOverrides::default())
+        .loader_overrides(LoaderOverrides::without_managed_config_for_tests())
+        .build()
+        .await?)
 }
 
 async fn setup_actor_with_config(
@@ -126,9 +127,7 @@ async fn setup_actor_with_config(
     );
     let conversation = Arc::new(StubCodexThread::new());
     let models_manager = Arc::new(StubModelsManager);
-    let mut config =
-        Config::load_with_cli_overrides_and_harness_overrides(vec![], ConfigOverrides::default())
-            .await?;
+    let mut config = load_test_config().await?;
     configure(&mut config)?;
     let (_message_tx, message_rx) = tokio::sync::mpsc::unbounded_channel();
     let (resolution_tx, resolution_rx) = tokio::sync::mpsc::unbounded_channel();

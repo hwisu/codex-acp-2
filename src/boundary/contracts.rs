@@ -24,8 +24,12 @@ const ADVERTISED_ACP_AGENT_HANDLER_PATTERNS: &[&str] = &[
     "SetSessionConfigOptionRequest, set_session_config_option",
 ];
 
-const ENABLED_SDK_AGENT_METHODS_NOT_ADVERTISED: &[&str] =
-    &["ForkSessionRequest", "ResumeSessionRequest"];
+const ENABLED_SDK_AGENT_METHODS_NOT_ADVERTISED: &[&str] = &[
+    "DeleteSessionRequest",
+    "ForkSessionRequest",
+    "ResumeSessionRequest",
+    "McpConnectRequest",
+];
 
 #[test]
 fn acp_agent_registers_every_advertised_handler() {
@@ -65,6 +69,7 @@ fn acp_agent_does_not_advertise_unimplemented_enabled_sdk_methods() {
         source.contains(".load_session(true)")
             && source.contains(".close(SessionCloseCapabilities::new())")
             && source.contains(".list(SessionListCapabilities::new())")
+            && !source.contains(".delete(")
             && !source.contains(".fork(")
             && !source.contains(".resume("),
         "session capabilities must match the registered ACP handler surface"
@@ -82,7 +87,8 @@ fn readmes_expose_current_acp_support_summary_at_the_top() {
         assert!(
             top.contains(version)
                 && top.contains("12/12")
-                && top.contains("12/14")
+                && top.contains("12/15")
+                && top.contains("session/delete")
                 && top.contains("session/fork")
                 && top.contains("session/resume"),
             "{readme} must expose the current ACP support summary near the top"
@@ -94,13 +100,13 @@ fn readmes_expose_current_acp_support_summary_at_the_top() {
 fn readmes_expose_upstream_acp_and_codex_versions() {
     let required = [
         "https://github.com/agentclientprotocol/codex-acp",
-        "@agentclientprotocol/codex-acp = 0.0.43",
+        "@agentclientprotocol/codex-acp = 0.0.44",
         "https://crates.io/crates/agent-client-protocol",
         "https://github.com/agentclientprotocol/rust-sdk",
-        "agent-client-protocol = 0.11.1",
-        "agent-client-protocol-schema = 0.12.0",
-        "https://github.com/openai/codex/tree/rust-v0.130.0/codex-rs",
-        "58573da43ab697e8b79f152c53df4b42230395a8",
+        "agent-client-protocol = 0.12.1",
+        "agent-client-protocol-schema = 0.13.2",
+        "https://github.com/openai/codex/tree/rust-v0.135.0/codex-rs",
+        "4daceea869704f9f35e0a3949fc34711ef978a4e",
     ];
 
     for readme in ["README.md", "README.ko.md"] {

@@ -219,9 +219,8 @@ impl<A: Auth> ThreadActor<A> {
         service_tier: Option<ServiceTier>,
     ) -> Result<(), Error> {
         let service_tier_value = service_tier.map(|tier| tier.request_value().to_string());
-        ConfigEditsBuilder::new(&self.config.codex_home)
-            .with_profile(self.config.active_profile.as_deref())
-            .set_service_tier(service_tier)
+        ConfigEditsBuilder::for_config(&self.config)
+            .set_service_tier(service_tier_value.clone())
             .apply()
             .await
             .map_err(|e| Error::from(anyhow::anyhow!(e)))?;

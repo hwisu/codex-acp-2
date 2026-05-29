@@ -45,7 +45,8 @@ use codex_core::{
     config::Config, find_thread_path_by_id_str, init_state_db, parse_cursor,
     resolve_installation_id, thread_store_from_config,
 };
-use codex_exec_server::{EnvironmentManager, EnvironmentManagerArgs, ExecServerRuntimePaths};
+use codex_exec_server::{EnvironmentManager, ExecServerRuntimePaths};
+use codex_extension_api::ExtensionRegistryBuilder;
 use codex_features::Feature;
 use codex_login::{
     CODEX_API_KEY_ENV_VAR, OPENAI_API_KEY_ENV_VAR,
@@ -130,8 +131,12 @@ struct CodexMcpServerMeta {
     scopes: Option<Vec<String>>,
     #[serde(alias = "oauth_resource")]
     oauth_resource: Option<String>,
-    #[serde(alias = "experimental_environment")]
-    experimental_environment: Option<String>,
+    #[serde(
+        alias = "environment_id",
+        alias = "experimentalEnvironment",
+        alias = "experimental_environment"
+    )]
+    environment_id: Option<String>,
     #[serde(alias = "bearer_token_env_var")]
     bearer_token_env_var: Option<String>,
     #[serde(alias = "env_http_headers")]
@@ -301,7 +306,9 @@ fn build_mcp_server_config(
     } = converted;
     let config = McpServerConfig {
         transport,
-        experimental_environment: meta.experimental_environment,
+        environment_id: meta
+            .environment_id
+            .unwrap_or_else(|| codex_config::DEFAULT_MCP_SERVER_ENVIRONMENT_ID.to_string()),
         enabled: meta.enabled.unwrap_or(true),
         required: meta.required.unwrap_or(false),
         supports_parallel_tool_calls: meta.supports_parallel_tool_calls.unwrap_or(false),
@@ -312,6 +319,7 @@ fn build_mcp_server_config(
         enabled_tools: meta.enabled_tools,
         disabled_tools: meta.disabled_tools,
         scopes: meta.scopes,
+        oauth: None,
         oauth_resource,
         tools: HashMap::default(),
     };
@@ -373,9 +381,10 @@ fn effective_config_has_feature_setting(
 
 fn apply_codex_acp_default_features(config: &mut Config) {
     let effective_config = config.config_layer_stack.effective_config();
+    let active_profile = config.permissions.active_permission_profile();
     if effective_config_has_feature_setting(
         &effective_config,
-        config.active_profile.as_deref(),
+        active_profile.as_ref().map(|profile| profile.id.as_str()),
         Feature::Goals,
     ) {
         return;
@@ -407,21 +416,27 @@ impl CodexAgent {
         let state_db = init_state_db(&config).await;
         let thread_store = thread_store_from_config(&config, state_db.clone());
         let installation_id = resolve_installation_id(&config.codex_home).await?;
+        let environment_manager = EnvironmentManager::from_codex_home(
+            config.codex_home.as_path(),
+            Some(ExecServerRuntimePaths::new(
+                std::env::current_exe()?,
+                codex_linux_sandbox_exe,
+            )?),
+        )
+        .await
+        .map_err(std::io::Error::other)?;
+        let extensions = ExtensionRegistryBuilder::new().build();
         let thread_manager = ThreadManager::new(
             &config,
             auth_manager.clone(),
             SessionSource::Unknown,
-            Arc::new(
-                EnvironmentManager::new(EnvironmentManagerArgs::new(ExecServerRuntimePaths::new(
-                    std::env::current_exe()?,
-                    codex_linux_sandbox_exe,
-                )?))
-                .await,
-            ),
+            Arc::new(environment_manager),
+            Arc::new(extensions),
             None,
             thread_store,
             state_db.clone(),
             installation_id,
+            None,
         );
         Ok(Self {
             auth_manager,
@@ -546,7 +561,6 @@ impl CodexAgent {
         mcp_servers: Vec<McpServer>,
     ) -> Result<Config, Error> {
         let mut config = self.config.clone();
-        config.include_apply_patch_tool = true;
         config.cwd = cwd.try_into().map_err(Error::into_internal_error)?;
         let cwd = config.cwd.clone();
 
@@ -1282,10 +1296,7 @@ mod tests {
 
         assert_eq!(name, "Calendar_Server");
         assert!(config.required);
-        assert_eq!(
-            config.experimental_environment.as_deref(),
-            Some("remote-linux")
-        );
+        assert_eq!(config.environment_id, "remote-linux");
         assert_eq!(
             config.startup_timeout_sec,
             Some(Duration::from_secs_f64(1.5))
@@ -1376,7 +1387,7 @@ mod tests {
 
         assert_eq!(name, "Docs_Server");
         assert!(config.required);
-        assert_eq!(config.experimental_environment.as_deref(), Some("sandbox"));
+        assert_eq!(config.environment_id, "sandbox");
         assert_eq!(config.startup_timeout_sec, Some(Duration::from_secs(2)));
         assert_eq!(config.tool_timeout_sec, Some(Duration::from_secs(5)));
         assert!(config.supports_parallel_tool_calls);

@@ -153,10 +153,6 @@ pub(crate) fn context_compacted() -> BridgeEffect {
     agent_text_effect("Context compacted\n")
 }
 
-pub(crate) fn skills_update_available() -> BridgeEffect {
-    agent_text_effect("Skills changed. Run /skills to refresh the list.")
-}
-
 pub(crate) fn available_commands(commands: Vec<AvailableCommand>) -> SessionUpdate {
     SessionUpdate::AvailableCommandsUpdate(AvailableCommandsUpdate::new(commands))
 }

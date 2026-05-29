@@ -48,6 +48,10 @@ pub(crate) fn route_live_event(event: EventMsg) -> LiveEventRoute {
         EventMsg::ThreadRolledBack(event) => {
             effect_route(session_update::thread_rolled_back(event))
         }
+        EventMsg::ThreadSettingsApplied(event) => Ignore {
+            event: EventMsg::ThreadSettingsApplied(event),
+            reason: StateOnly,
+        },
         EventMsg::TurnStarted(event) => Ignore {
             event: EventMsg::TurnStarted(event),
             reason: StateOnly,
@@ -90,6 +94,7 @@ pub(crate) fn route_live_event(event: EventMsg) -> LiveEventRoute {
                 call_id,
                 invocation,
                 mcp_app_resource_uri: _,
+                plugin_id: _,
             } = event;
             effect_route(tool_call::mcp_tool_call_begin_effect(call_id, &invocation))
         }
@@ -98,6 +103,7 @@ pub(crate) fn route_live_event(event: EventMsg) -> LiveEventRoute {
                 call_id,
                 invocation: _,
                 mcp_app_resource_uri: _,
+                plugin_id: _,
                 duration: _,
                 result,
             } = event;
@@ -186,7 +192,6 @@ pub(crate) fn route_live_event(event: EventMsg) -> LiveEventRoute {
             event: EventMsg::RealtimeConversationListVoicesResponse(event),
             reason: UnsupportedByAcp,
         },
-        EventMsg::SkillsUpdateAvailable => effect_route(session_update::skills_update_available()),
         EventMsg::PlanUpdate(event) => effect_route(session_update::plan_effect(event.plan)),
         EventMsg::TurnAborted(
             event @ TurnAbortedEvent {

@@ -1,12 +1,15 @@
 use codex_core::review_prompts::user_facing_hint;
 use codex_protocol::{
     config_types::CollaborationMode,
+    models::ActivePermissionProfile,
     openai_models::ReasoningEffort,
-    protocol::{Op, ReviewRequest, ReviewTarget},
+    protocol::{Op, ReviewRequest, ReviewTarget, ThreadSettingsOverrides},
     request_user_input::RequestUserInputResponse,
     user_input::UserInput,
 };
 use codex_utils_approval_presets::ApprovalPreset;
+
+use crate::session_mode::active_profile_id_for_session_mode;
 
 pub(crate) enum ReasoningEffortOverride {
     Set(ReasoningEffort),
@@ -32,6 +35,8 @@ pub(crate) fn user_input(items: Vec<UserInput>) -> Op {
         final_output_json_schema: None,
         environments: None,
         responsesapi_client_metadata: None,
+        additional_context: Default::default(),
+        thread_settings: ThreadSettingsOverrides::default(),
     }
 }
 
@@ -65,70 +70,42 @@ pub(crate) fn shutdown() -> Op {
 }
 
 pub(crate) fn override_model(model: Option<String>, effort: ReasoningEffortOverride) -> Op {
-    Op::OverrideTurnContext {
-        cwd: None,
-        approval_policy: None,
-        sandbox_policy: None,
-        model,
-        effort: Some(effort.into_op_value()),
-        summary: None,
-        collaboration_mode: None,
-        personality: None,
-        windows_sandbox_level: None,
-        service_tier: None,
-        approvals_reviewer: None,
-        permission_profile: None,
+    Op::ThreadSettings {
+        thread_settings: ThreadSettingsOverrides {
+            model,
+            effort: Some(effort.into_op_value()),
+            ..ThreadSettingsOverrides::default()
+        },
     }
 }
 
 pub(crate) fn override_approval_preset(preset: &ApprovalPreset) -> Op {
-    Op::OverrideTurnContext {
-        cwd: None,
-        approval_policy: Some(preset.approval),
-        permission_profile: Some(preset.permission_profile.clone()),
-        sandbox_policy: None,
-        model: None,
-        effort: None,
-        summary: None,
-        collaboration_mode: None,
-        personality: None,
-        windows_sandbox_level: None,
-        service_tier: None,
-        approvals_reviewer: None,
+    Op::ThreadSettings {
+        thread_settings: ThreadSettingsOverrides {
+            approval_policy: Some(preset.approval),
+            permission_profile: Some(preset.permission_profile.clone()),
+            active_permission_profile: active_profile_id_for_session_mode(preset.id)
+                .map(ActivePermissionProfile::new),
+            ..ThreadSettingsOverrides::default()
+        },
     }
 }
 
 pub(crate) fn override_collaboration_mode(collaboration_mode: CollaborationMode) -> Op {
-    Op::OverrideTurnContext {
-        cwd: None,
-        approval_policy: None,
-        sandbox_policy: None,
-        model: None,
-        effort: None,
-        summary: None,
-        collaboration_mode: Some(collaboration_mode),
-        personality: None,
-        windows_sandbox_level: None,
-        service_tier: None,
-        approvals_reviewer: None,
-        permission_profile: None,
+    Op::ThreadSettings {
+        thread_settings: ThreadSettingsOverrides {
+            collaboration_mode: Some(collaboration_mode),
+            ..ThreadSettingsOverrides::default()
+        },
     }
 }
 
 pub(crate) fn override_service_tier(service_tier: Option<String>) -> Op {
-    Op::OverrideTurnContext {
-        cwd: None,
-        approval_policy: None,
-        sandbox_policy: None,
-        model: None,
-        effort: None,
-        summary: None,
-        collaboration_mode: None,
-        personality: None,
-        windows_sandbox_level: None,
-        service_tier: Some(service_tier),
-        approvals_reviewer: None,
-        permission_profile: None,
+    Op::ThreadSettings {
+        thread_settings: ThreadSettingsOverrides {
+            service_tier: Some(service_tier),
+            ..ThreadSettingsOverrides::default()
+        },
     }
 }
 
@@ -157,9 +134,12 @@ mod tests {
 
         assert!(matches!(
             op,
-            Op::OverrideTurnContext {
-                model: Some(model),
-                effort: Some(None),
+            Op::ThreadSettings {
+                thread_settings: ThreadSettingsOverrides {
+                    model: Some(model),
+                    effort: Some(None),
+                    ..
+                },
                 ..
             } if model == "gpt-5.4"
         ));

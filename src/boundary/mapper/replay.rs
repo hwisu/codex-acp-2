@@ -74,7 +74,6 @@ fn route_replay_event_action(event: &EventMsg) -> ReplayEventAction<'_> {
         EventMsg::CollabResumeEnd(event) => {
             effect_action(tool_call::collab_resume_replay_effect(event))
         }
-        EventMsg::SkillsUpdateAvailable => effect_action(session_update::skills_update_available()),
         EventMsg::RequestUserInput(event) => ReplayEventAction::RegisterPendingUserInput {
             turn_id: &event.turn_id,
             event,
@@ -133,6 +132,7 @@ fn route_replay_event_action(event: &EventMsg) -> ReplayEventAction<'_> {
             reason: AlreadyRenderedByAnotherEvent,
         },
         EventMsg::TurnStarted(..)
+        | EventMsg::ThreadSettingsApplied(..)
         | EventMsg::SessionConfigured(..)
         | EventMsg::EnteredReviewMode(..)
         | EventMsg::ContextCompacted(..)
@@ -262,12 +262,12 @@ pub(crate) fn route_replay_response_item(item: &ResponseItem) -> ReplayResponseI
             item,
             reason: AlreadyRenderedByAnotherEvent,
         },
-        ResponseItem::Compaction { .. } | ResponseItem::ContextCompaction { .. } => {
-            ReplayResponseItemRoute::Ignore {
-                item,
-                reason: StateOnly,
-            }
-        }
+        ResponseItem::Compaction { .. }
+        | ResponseItem::ContextCompaction { .. }
+        | ResponseItem::CompactionTrigger => ReplayResponseItemRoute::Ignore {
+            item,
+            reason: StateOnly,
+        },
         ResponseItem::ToolSearchCall { .. }
         | ResponseItem::ToolSearchOutput { .. }
         | ResponseItem::Other => ReplayResponseItemRoute::Ignore {

@@ -186,9 +186,11 @@ async fn fast_mode_config_option_sets_service_tier() -> anyhow::Result<()> {
     let ops = thread.ops();
     assert!(matches!(
         ops.as_slice(),
-        [Op::OverrideTurnContext {
-            service_tier: Some(Some(service_tier)),
-            ..
+        [Op::ThreadSettings {
+            thread_settings: ThreadSettingsOverrides {
+                service_tier: Some(Some(service_tier)),
+                ..
+            },
         }] if service_tier == "priority"
     ));
 
@@ -262,12 +264,14 @@ async fn setting_session_mode_applies_collaboration_mode() -> anyhow::Result<()>
     let ops = thread.ops();
     assert!(matches!(
         ops.as_slice(),
-        [Op::OverrideTurnContext {
-            collaboration_mode: Some(CollaborationMode {
-                mode: ModeKind::Plan,
+        [Op::ThreadSettings {
+            thread_settings: ThreadSettingsOverrides {
+                collaboration_mode: Some(CollaborationMode {
+                    mode: ModeKind::Plan,
+                    ..
+                }),
                 ..
-            }),
-            ..
+            },
         }]
     ));
 
@@ -285,11 +289,13 @@ async fn legacy_full_access_session_mode_applies_approval_preset() -> anyhow::Re
     let ops = thread.ops();
     assert!(matches!(
         ops.as_slice(),
-        [Op::OverrideTurnContext {
-            approval_policy: Some(_),
-            permission_profile: Some(PermissionProfile::Disabled),
-            collaboration_mode: None,
-            ..
+        [Op::ThreadSettings {
+            thread_settings: ThreadSettingsOverrides {
+                approval_policy: Some(_),
+                permission_profile: Some(PermissionProfile::Disabled),
+                collaboration_mode: None,
+                ..
+            },
         }]
     ));
 
@@ -315,9 +321,11 @@ async fn legacy_full_access_session_mode_alias_is_canonicalized() -> anyhow::Res
     let ops = thread.ops();
     assert!(matches!(
         ops.as_slice(),
-        [Op::OverrideTurnContext {
-            permission_profile: Some(PermissionProfile::Disabled),
-            ..
+        [Op::ThreadSettings {
+            thread_settings: ThreadSettingsOverrides {
+                permission_profile: Some(PermissionProfile::Disabled),
+                ..
+            },
         }]
     ));
     assert_eq!(
@@ -451,10 +459,12 @@ async fn setting_model_with_bracket_effort_sends_explicit_effort() -> anyhow::Re
     let ops = thread.ops();
     assert!(matches!(
         ops.as_slice(),
-        [Op::OverrideTurnContext {
-            model: Some(model),
-            effort: Some(Some(ReasoningEffort::High)),
-            ..
+        [Op::ThreadSettings {
+            thread_settings: ThreadSettingsOverrides {
+                model: Some(model),
+                effort: Some(Some(ReasoningEffort::High)),
+                ..
+            },
         }] if model == "gpt-5.4"
     ));
 
@@ -486,10 +496,12 @@ async fn setting_plain_model_preserves_supported_reasoning_effort() -> anyhow::R
     let ops = thread.ops();
     assert!(matches!(
         ops.as_slice(),
-        [Op::OverrideTurnContext {
-            model: Some(model),
-            effort: Some(Some(ReasoningEffort::XHigh)),
-            ..
+        [Op::ThreadSettings {
+            thread_settings: ThreadSettingsOverrides {
+                model: Some(model),
+                effort: Some(Some(ReasoningEffort::XHigh)),
+                ..
+            },
         }] if model == "gpt-5.4"
     ));
 
@@ -513,10 +525,12 @@ async fn setting_custom_config_model_clears_reasoning_effort() -> anyhow::Result
     let ops = thread.ops();
     assert!(matches!(
         ops.as_slice(),
-        [Op::OverrideTurnContext {
-            model: Some(model),
-            effort: Some(None),
-            ..
+        [Op::ThreadSettings {
+            thread_settings: ThreadSettingsOverrides {
+                model: Some(model),
+                effort: Some(None),
+                ..
+            },
         }] if model == "custom-model"
     ));
 
@@ -539,11 +553,13 @@ async fn setting_approval_preset_uses_dedicated_config_option() -> anyhow::Resul
     let ops = thread.ops();
     assert!(matches!(
         ops.as_slice(),
-        [Op::OverrideTurnContext {
-            approval_policy: Some(_),
-            permission_profile: Some(PermissionProfile::Disabled),
-            collaboration_mode: None,
-            ..
+        [Op::ThreadSettings {
+            thread_settings: ThreadSettingsOverrides {
+                approval_policy: Some(_),
+                permission_profile: Some(PermissionProfile::Disabled),
+                collaboration_mode: None,
+                ..
+            },
         }]
     ));
 
@@ -570,15 +586,19 @@ async fn setting_reasoning_effort_sends_effort_without_model_override() -> anyho
     assert!(matches!(
         ops.as_slice(),
         [
-            Op::OverrideTurnContext {
-                model: Some(model),
-                effort: Some(Some(ReasoningEffort::High)),
-                ..
+            Op::ThreadSettings {
+                thread_settings: ThreadSettingsOverrides {
+                    model: Some(model),
+                    effort: Some(Some(ReasoningEffort::High)),
+                    ..
+                },
             },
-            Op::OverrideTurnContext {
-                model: None,
-                effort: Some(Some(ReasoningEffort::XHigh)),
-                ..
+            Op::ThreadSettings {
+                thread_settings: ThreadSettingsOverrides {
+                    model: None,
+                    effort: Some(Some(ReasoningEffort::XHigh)),
+                    ..
+                },
             },
         ] if model == "gpt-5.4"
     ));
@@ -609,9 +629,11 @@ async fn modes_match_augmented_workspace_permission_profile() -> anyhow::Result<
 
     config
         .permissions
-        .set_permission_profile_with_active_profile(
-            augmented_profile,
-            Some(ActivePermissionProfile::new(CODEX_WORKSPACE_PROFILE_ID)),
+        .set_permission_profile_from_session_snapshot(
+            PermissionProfileSnapshot::from_session_snapshot(
+                augmented_profile,
+                Some(ActivePermissionProfile::new(CODEX_WORKSPACE_PROFILE_ID)),
+            ),
         )?;
 
     let mode_id = current_session_mode_id(&config).expect("mode should be recognized");

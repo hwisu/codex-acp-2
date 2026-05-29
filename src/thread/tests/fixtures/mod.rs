@@ -31,8 +31,9 @@ pub(super) use agent_client_protocol::{
         ToolCallUpdate, ToolKind,
     },
 };
+pub(super) use codex_config::LoaderOverrides;
 pub(super) use codex_core::{
-    config::{Config, ConfigOverrides},
+    config::{Config, ConfigBuilder, ConfigOverrides, PermissionProfileSnapshot},
     review_prompts::user_facing_hint,
     test_support::all_model_presets,
 };
@@ -56,8 +57,8 @@ pub(super) use codex_protocol::protocol::{
     ExecCommandOutputDeltaEvent, ExitedReviewModeEvent, FileChange, ImageGenerationBeginEvent,
     ImageGenerationEndEvent, Op, RateLimitSnapshot, ReasoningContentDeltaEvent, ReviewDecision,
     ReviewOutputEvent, ReviewRequest, ReviewTarget, RolloutItem, ThreadGoal, ThreadGoalStatus,
-    ThreadGoalUpdatedEvent, TokenCountEvent, TokenUsageInfo, TurnAbortedEvent, TurnCompleteEvent,
-    TurnStartedEvent, WarningEvent,
+    ThreadGoalUpdatedEvent, ThreadSettingsOverrides, TokenCountEvent, TokenUsageInfo,
+    TurnAbortedEvent, TurnCompleteEvent, TurnStartedEvent, WarningEvent,
 };
 pub(super) use codex_protocol::request_permissions::RequestPermissionProfile;
 pub(super) use codex_protocol::request_user_input::{

@@ -1,6 +1,6 @@
 # codex-acp-2
 
-Codex ACP version: `0.130.0` · ACP contract: `100%` advertised (`12/12` handlers), `86%` enabled SDK surface (`12/14`; `session/fork` and `session/resume` are not advertised)
+Codex ACP version: `0.135.0` · ACP contract: `100%` advertised (`12/12` handlers), `80%` enabled SDK surface (`12/15`; `session/delete`, `session/fork`, and `session/resume` are not advertised)
 
 [Korean](README.ko.md)
 
@@ -23,15 +23,15 @@ This fork tracks upstream Codex releases under three rules:
 
 ## Pinned Versions
 
-- Codex Rust crates: [`openai/codex`](https://github.com/openai/codex/tree/rust-v0.130.0/codex-rs)
-  at tag `rust-v0.130.0` (`58573da43ab697e8b79f152c53df4b42230395a8` in `Cargo.lock`)
+- Codex Rust crates: [`openai/codex`](https://github.com/openai/codex/tree/rust-v0.135.0/codex-rs)
+  at tag `rust-v0.135.0` (`4daceea869704f9f35e0a3949fc34711ef978a4e` in `Cargo.lock`)
 - ACP Rust SDK: [`agent-client-protocol`](https://crates.io/crates/agent-client-protocol)
   from [`agentclientprotocol/rust-sdk`](https://github.com/agentclientprotocol/rust-sdk) -
-  `agent-client-protocol = 0.11.1` with `unstable`
-  (`agent-client-protocol-schema = 0.12.0` via lockfile)
+  `agent-client-protocol = 0.12.1` with `unstable`
+  (`agent-client-protocol-schema = 0.13.2` via lockfile)
 - Official Codex ACP adapter reference:
   [`agentclientprotocol/codex-acp`](https://github.com/agentclientprotocol/codex-acp),
-  npm `@agentclientprotocol/codex-acp = 0.0.43`
+  npm `@agentclientprotocol/codex-acp = 0.0.44`
 
 ## Features
 
@@ -44,6 +44,11 @@ This fork tracks upstream Codex releases under three rules:
   collaboration mode
 - Slash commands: `/review`, `/status`, `/usage`, `/permissions`, `/agent`,
   `/ps`, `/undo`, `/plan`, `/goal`, `/fast`, `/logout`
+
+ACP `session/delete`, `session/fork`, `session/resume`, and MCP-over-ACP proxy
+methods are intentionally not exposed by this adapter yet. Client-provided MCP
+server configuration is accepted through ACP session creation and translated into
+Codex MCP config; MCP tool output continues to be rendered as ACP tool calls.
 
 Terminal output uses an ACP `_meta` compatibility extension. Zed picks it up
 automatically; other clients can set

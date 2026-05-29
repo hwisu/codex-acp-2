@@ -298,7 +298,7 @@ impl<A: Auth> ThreadActor<A> {
         auto_approval: Option<mapper::ActorAutoApproval>,
     ) -> bool {
         if !matches!(
-            self.config.permissions.permission_profile.get(),
+            self.config.permissions.permission_profile(),
             PermissionProfile::Disabled
         ) {
             return false;

@@ -179,13 +179,17 @@ async fn test_fast_command_toggles_service_tier() -> anyhow::Result<()> {
     assert!(matches!(
         ops.as_slice(),
         [
-            Op::OverrideTurnContext {
-                service_tier: Some(Some(service_tier)),
-                ..
+            Op::ThreadSettings {
+                thread_settings: ThreadSettingsOverrides {
+                    service_tier: Some(Some(service_tier)),
+                    ..
+                },
             },
-            Op::OverrideTurnContext {
-                service_tier: Some(None),
-                ..
+            Op::ThreadSettings {
+                thread_settings: ThreadSettingsOverrides {
+                    service_tier: Some(None),
+                    ..
+                },
             },
         ] if service_tier == "priority"
     ));
@@ -289,6 +293,8 @@ async fn test_init() -> anyhow::Result<()> {
             final_output_json_schema: None,
             environments: None,
             responsesapi_client_metadata: None,
+            additional_context: Default::default(),
+            thread_settings: ThreadSettingsOverrides::default(),
         }],
         "ops don't match {ops:?}"
     );
@@ -445,13 +451,14 @@ async fn test_plan_command_with_inline_prompt_sets_plan_mode() -> anyhow::Result
     assert!(matches!(
         ops.as_slice(),
         [
-            Op::OverrideTurnContext {
-                collaboration_mode:
-                    Some(CollaborationMode {
+            Op::ThreadSettings {
+                thread_settings: ThreadSettingsOverrides {
+                    collaboration_mode: Some(CollaborationMode {
                         mode: ModeKind::Plan,
                         ..
                     }),
-                ..
+                    ..
+                },
             },
             Op::UserInput { items, .. }
         ] if matches!(

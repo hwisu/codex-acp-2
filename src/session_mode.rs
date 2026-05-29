@@ -54,7 +54,7 @@ pub(crate) fn untrusted_read_only_mode_id(config: &Config) -> Option<SessionMode
 pub(crate) fn semantic_session_mode_id_for_permission_profile(
     config: &Config,
 ) -> Option<&'static str> {
-    let permission_profile = config.permissions.permission_profile.get();
+    let permission_profile = config.permissions.permission_profile();
 
     match permission_profile {
         PermissionProfile::Managed { .. } => {
@@ -90,7 +90,7 @@ pub(crate) fn current_session_mode_id(config: &Config) -> Option<SessionModeId> 
 
     if let Some(preset) = APPROVAL_PRESETS.iter().find(|preset| {
         approval_matches_current_config(preset, config)
-            && &preset.permission_profile == config.permissions.permission_profile.get()
+            && &preset.permission_profile == config.permissions.permission_profile()
     }) {
         return Some(SessionModeId::new(preset.id));
     }

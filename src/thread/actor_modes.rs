@@ -2,7 +2,7 @@ use agent_client_protocol::{
     Error,
     schema::{SessionMode, SessionModeId, SessionModeState},
 };
-use codex_core::config::set_project_trust_level;
+use codex_core::config::{PermissionProfileSnapshot, set_project_trust_level};
 use codex_protocol::{
     config_types::{ModeKind, TrustLevel},
     models::ActivePermissionProfile,
@@ -79,9 +79,11 @@ impl<A: Auth> ThreadActor<A> {
             .map_err(|e| Error::from(anyhow::anyhow!(e)))?;
         self.config
             .permissions
-            .set_permission_profile_with_active_profile(
-                preset.permission_profile.clone(),
-                active_profile_id_for_session_mode(preset.id).map(ActivePermissionProfile::new),
+            .set_permission_profile_from_session_snapshot(
+                PermissionProfileSnapshot::from_session_snapshot(
+                    preset.permission_profile.clone(),
+                    active_profile_id_for_session_mode(preset.id).map(ActivePermissionProfile::new),
+                ),
             )
             .map_err(|e| Error::from(anyhow::anyhow!(e)))?;
 

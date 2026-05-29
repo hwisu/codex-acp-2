@@ -53,6 +53,7 @@ fn route_actor_event(msg: &EventMsg) -> ActorEventAction {
         | EventMsg::ModelVerification(..)
         | EventMsg::ContextCompacted(..)
         | EventMsg::ThreadRolledBack(..)
+        | EventMsg::ThreadSettingsApplied(..)
         | EventMsg::TurnStarted(..)
         | EventMsg::TokenCount(..)
         | EventMsg::AgentMessage(..)
@@ -87,7 +88,6 @@ fn route_actor_event(msg: &EventMsg) -> ActorEventAction {
         | EventMsg::PatchApplyEnd(..)
         | EventMsg::TurnDiff(..)
         | EventMsg::RealtimeConversationListVoicesResponse(..)
-        | EventMsg::SkillsUpdateAvailable
         | EventMsg::PlanUpdate(..)
         | EventMsg::EnteredReviewMode(..)
         | EventMsg::ExitedReviewMode(..)
@@ -205,6 +205,7 @@ pub(crate) fn actor_state_updates(event: &EventMsg) -> Vec<ActorStateUpdate> {
         | EventMsg::ModelVerification(..)
         | EventMsg::ContextCompacted(..)
         | EventMsg::ThreadRolledBack(..)
+        | EventMsg::ThreadSettingsApplied(..)
         | EventMsg::TurnComplete(..)
         | EventMsg::UserMessage(..)
         | EventMsg::AgentMessage(..)
@@ -241,7 +242,6 @@ pub(crate) fn actor_state_updates(event: &EventMsg) -> Vec<ActorStateUpdate> {
         | EventMsg::PatchApplyEnd(..)
         | EventMsg::TurnDiff(..)
         | EventMsg::RealtimeConversationListVoicesResponse(..)
-        | EventMsg::SkillsUpdateAvailable
         | EventMsg::PlanUpdate(..)
         | EventMsg::TurnAborted(..)
         | EventMsg::ShutdownComplete

@@ -11,6 +11,8 @@ pub(crate) fn format_thread_goal_update(event: &ThreadGoalUpdatedEvent) -> Strin
     let status = match event.goal.status {
         ThreadGoalStatus::Active => "active",
         ThreadGoalStatus::Paused => "paused",
+        ThreadGoalStatus::Blocked => "blocked",
+        ThreadGoalStatus::UsageLimited => "usage limited",
         ThreadGoalStatus::BudgetLimited => "budget limited",
         ThreadGoalStatus::Complete => "complete",
     };
@@ -53,6 +55,8 @@ pub(crate) fn format_thread_goal_status_label(status: ThreadGoalStatus) -> &'sta
     match status {
         ThreadGoalStatus::Active => "active",
         ThreadGoalStatus::Paused => "paused",
+        ThreadGoalStatus::Blocked => "blocked",
+        ThreadGoalStatus::UsageLimited => "limited by usage",
         ThreadGoalStatus::BudgetLimited => "limited by budget",
         ThreadGoalStatus::Complete => "complete",
     }
@@ -100,9 +104,10 @@ pub(crate) fn format_thread_goal_summary(goal: &ThreadGoal) -> String {
     lines.push(match goal.status {
         ThreadGoalStatus::Active => "Commands: /goal pause, /goal clear".to_string(),
         ThreadGoalStatus::Paused => "Commands: /goal resume, /goal clear".to_string(),
-        ThreadGoalStatus::BudgetLimited | ThreadGoalStatus::Complete => {
-            "Commands: /goal clear".to_string()
-        }
+        ThreadGoalStatus::Blocked
+        | ThreadGoalStatus::UsageLimited
+        | ThreadGoalStatus::BudgetLimited
+        | ThreadGoalStatus::Complete => "Commands: /goal clear".to_string(),
     });
     lines.join("\n")
 }
