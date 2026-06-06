@@ -33,6 +33,7 @@ fn classifies_user_message_by_context() {
         text_elements: Vec::new(),
         local_images: Vec::new(),
         local_image_details: Vec::new(),
+        client_id: None,
     });
 
     assert_eq!(

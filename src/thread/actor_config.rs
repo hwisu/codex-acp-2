@@ -67,10 +67,9 @@ impl<A: Auth> ThreadActor<A> {
         let mut model_select_options = Vec::new();
 
         if current_preset.is_none() && presets.is_empty() {
-            // If no preset found, return the current model string as-is
             model_select_options.push(SessionConfigSelectOption::new(
-                current_model.clone(),
-                current_model.clone(),
+                current_model_value.clone(),
+                current_model_value.clone(),
             ));
         }
 
@@ -271,7 +270,6 @@ impl<A: Auth> ThreadActor<A> {
         self.ensure_current_model_selection().await?;
 
         Ok(LoadSessionResponse::new()
-            .models(self.models().await?)
             .modes(self.modes())
             .config_options(self.config_options().await?))
     }

@@ -3,7 +3,7 @@ use std::sync::{Arc, LazyLock, Mutex};
 use agent_client_protocol::{
     Client, ConnectionTo, Error,
     schema::{
-        ClientCapabilities, Implementation, LoadSessionResponse, ModelId, PromptRequest,
+        ClientCapabilities, Implementation, LoadSessionResponse, PromptRequest,
         RequestPermissionResponse, SessionConfigId, SessionConfigOption, SessionConfigOptionValue,
         SessionId, SessionModeId, StopReason,
     },
@@ -87,10 +87,6 @@ enum ThreadMessage {
     },
     SetMode {
         mode: SessionModeId,
-        response_tx: oneshot::Sender<Result<(), Error>>,
-    },
-    SetModel {
-        model: ModelId,
         response_tx: oneshot::Sender<Result<(), Error>>,
     },
     SetConfigOption {
@@ -198,11 +194,6 @@ impl Thread {
 
     pub async fn set_mode(&self, mode: SessionModeId) -> Result<(), Error> {
         self.request_actor(|response_tx| ThreadMessage::SetMode { mode, response_tx })
-            .await
-    }
-
-    pub async fn set_model(&self, model: ModelId) -> Result<(), Error> {
-        self.request_actor(|response_tx| ThreadMessage::SetModel { model, response_tx })
             .await
     }
 

@@ -332,6 +332,7 @@ pub(crate) fn request_permissions_interaction(
         permissions,
         cwd: _,
         started_at_ms: _,
+        ..
     } = event;
 
     let tool_call_id = ToolCallId::new(call_id.clone());

@@ -20,7 +20,6 @@ const ADVERTISED_ACP_AGENT_HANDLER_PATTERNS: &[&str] = &[
     "PromptRequest, prompt",
     "notification: CancelNotification",
     "SetSessionModeRequest, set_session_mode",
-    "SetSessionModelRequest, set_session_model",
     "SetSessionConfigOptionRequest, set_session_config_option",
 ];
 
@@ -86,8 +85,8 @@ fn readmes_expose_current_acp_support_summary_at_the_top() {
 
         assert!(
             top.contains(version)
-                && top.contains("12/12")
-                && top.contains("12/15")
+                && top.contains("11/11")
+                && top.contains("11/16")
                 && top.contains("session/delete")
                 && top.contains("session/fork")
                 && top.contains("session/resume"),
@@ -100,13 +99,13 @@ fn readmes_expose_current_acp_support_summary_at_the_top() {
 fn readmes_expose_upstream_acp_and_codex_versions() {
     let required = [
         "https://github.com/agentclientprotocol/codex-acp",
-        "@agentclientprotocol/codex-acp = 0.0.44",
+        "@agentclientprotocol/codex-acp = 0.0.45",
         "https://crates.io/crates/agent-client-protocol",
         "https://github.com/agentclientprotocol/rust-sdk",
-        "agent-client-protocol = 0.12.1",
-        "agent-client-protocol-schema = 0.13.2",
-        "https://github.com/openai/codex/tree/rust-v0.135.0/codex-rs",
-        "4daceea869704f9f35e0a3949fc34711ef978a4e",
+        "agent-client-protocol = 0.14.0",
+        "agent-client-protocol-schema = 0.13.6",
+        "https://github.com/openai/codex/tree/rust-v0.137.0/codex-rs",
+        "f221438b691b8f749d98f22077c93ebe01923fbe",
     ];
 
     for readme in ["README.md", "README.ko.md"] {
