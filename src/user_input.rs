@@ -111,14 +111,13 @@ pub(crate) fn match_request_user_input_option(
         return None;
     }
 
+    let other_label = question
+        .is_other
+        .then(|| REQUEST_USER_INPUT_OTHER_OPTION_LABEL.to_string());
     let labels = options
         .iter()
         .map(|option| option.label.clone())
-        .chain(
-            question
-                .is_other
-                .then(|| REQUEST_USER_INPUT_OTHER_OPTION_LABEL.to_string()),
-        )
+        .chain(other_label)
         .collect::<Vec<_>>();
 
     let exact_matches = labels

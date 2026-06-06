@@ -115,11 +115,11 @@ impl ActorState {
     }
 
     pub(super) fn known_collab_agents_sorted(&self) -> Vec<CollabAgentStatusEntry> {
-        let mut agents = self
+        let mut agents: Vec<_> = self
             .known_collab_agents
             .values()
             .cloned()
-            .collect::<Vec<_>>();
+            .collect();
         agents.sort_by(|left, right| {
             format_agent_label(
                 left.agent_nickname.as_deref(),

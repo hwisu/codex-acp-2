@@ -1072,7 +1072,7 @@ impl TryFrom<AuthMethodId> for CodexAuthMethod {
     }
 }
 
-fn truncate_graphemes(text: &str, max_graphemes: usize) -> String {
+fn truncate_graphemes(text: &str, max_graphemes: usize) -> std::borrow::Cow<'_, str> {
     let mut graphemes = text.grapheme_indices(true);
 
     if let Some((byte_index, _)) = graphemes.nth(max_graphemes) {
@@ -1080,16 +1080,16 @@ fn truncate_graphemes(text: &str, max_graphemes: usize) -> String {
             let mut truncate_graphemes = text.grapheme_indices(true);
             if let Some((truncate_byte_index, _)) = truncate_graphemes.nth(max_graphemes - 3) {
                 let truncated = &text[..truncate_byte_index];
-                format!("{truncated}...")
+                format!("{truncated}...").into()
             } else {
-                text.to_string()
+                text.into()
             }
         } else {
             let truncated = &text[..byte_index];
-            truncated.to_string()
+            truncated.to_string().into()
         }
     } else {
-        text.to_string()
+        text.into()
     }
 }
 
@@ -1099,7 +1099,7 @@ fn format_session_title(message: &str) -> Option<String> {
     if trimmed.is_empty() {
         None
     } else {
-        Some(truncate_graphemes(trimmed, SESSION_TITLE_MAX_GRAPHEMES))
+        Some(truncate_graphemes(trimmed, SESSION_TITLE_MAX_GRAPHEMES).into_owned())
     }
 }
 
