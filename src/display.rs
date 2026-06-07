@@ -7,6 +7,8 @@ use codex_protocol::protocol::{
     ThreadGoalStatus, ThreadGoalUpdatedEvent,
 };
 
+use itertools::Itertools as _;
+
 pub(crate) fn format_thread_goal_update(event: &ThreadGoalUpdatedEvent) -> String {
     let status = match event.goal.status {
         ThreadGoalStatus::Active => "active",
@@ -185,7 +187,6 @@ pub(crate) fn format_collab_waiting_statuses(entries: &[CollabAgentStatusEntry])
         let lines = entries
             .iter()
             .map(format_collab_status_entry)
-            .collect::<Vec<_>>()
             .join("\n");
         format!("Agents:\n{lines}")
     })

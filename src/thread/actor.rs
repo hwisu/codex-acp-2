@@ -125,14 +125,10 @@ impl<A: Auth> ThreadActor<A> {
                 }
             }
             // Litter collection of senders with no receivers
-            let pending_submission_id = self
-                .state
-                .pending_submission_id()
-                .map(std::borrow::ToOwned::to_owned);
+            let pending_submission_id = self.state.pending_submission_id();
             self.submissions.retain(|submission_id, submission| {
                 submission.is_active()
                     || pending_submission_id
-                        .as_deref()
                         .is_some_and(|pending| pending == submission_id)
             });
 
@@ -170,11 +166,6 @@ impl<A: Auth> ThreadActor<A> {
             }
             ThreadMessage::SetMode { mode, response_tx } => {
                 let result = self.handle_set_mode(mode).await;
-                send_actor_response(response_tx, result);
-                self.maybe_emit_config_options_update().await;
-            }
-            ThreadMessage::SetModel { model, response_tx } => {
-                let result = self.handle_set_model(model).await;
                 send_actor_response(response_tx, result);
                 self.maybe_emit_config_options_update().await;
             }

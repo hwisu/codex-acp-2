@@ -847,6 +847,7 @@ async fn test_status_command_reports_session_state_without_usage_details() -> an
                     credits: None,
                     plan_type: None,
                     rate_limit_reached_type: None,
+                    individual_limit: None,
                 }),
             }),
         })

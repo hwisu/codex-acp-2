@@ -121,6 +121,7 @@ pub(crate) fn request_permissions(
         reason,
         permissions,
         cwd: None,
+        environment_id: None,
     }
 }
 

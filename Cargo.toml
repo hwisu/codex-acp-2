@@ -1,6 +1,6 @@
 [package]
 name = "codex-acp"
-version = "0.135.0"
+version = "0.137.0"
 edition = "2024"
 authors = ["codex-acp-2 contributors"]
 license = "Apache-2.0"
@@ -18,52 +18,46 @@ name = "codex_acp"
 path = "src/lib.rs"
 
 [dependencies]
-agent-client-protocol = { version = "=0.12.1", features = ["unstable"] }
+agent-client-protocol = { version = "=0.14.0", features = ["unstable"] }
 allocative = "=0.3.4"
 anyhow = "1"
 base64 = "0.22.1"
 clap = "4"
-codex-apply-patch = { git = "https://github.com/openai/codex", tag = "rust-v0.135.0" }
-codex-arg0 = { git = "https://github.com/openai/codex", tag = "rust-v0.135.0" }
-codex-config = { git = "https://github.com/openai/codex", tag = "rust-v0.135.0" }
-codex-core = { git = "https://github.com/openai/codex", tag = "rust-v0.135.0" }
-codex-exec-server = { git = "https://github.com/openai/codex", tag = "rust-v0.135.0" }
-codex-extension-api = { git = "https://github.com/openai/codex", tag = "rust-v0.135.0" }
-codex-features = { git = "https://github.com/openai/codex", tag = "rust-v0.135.0" }
-codex-git-utils = { git = "https://github.com/openai/codex", tag = "rust-v0.135.0" }
-codex-mcp-server = { git = "https://github.com/openai/codex", tag = "rust-v0.135.0" }
-codex-models-manager = { git = "https://github.com/openai/codex", tag = "rust-v0.135.0" }
-codex-protocol = { git = "https://github.com/openai/codex", tag = "rust-v0.135.0" }
-codex-login = { git = "https://github.com/openai/codex", tag = "rust-v0.135.0" }
-codex-shell-command = { git = "https://github.com/openai/codex", tag = "rust-v0.135.0" }
-codex-state = { git = "https://github.com/openai/codex", tag = "rust-v0.135.0" }
-codex-utils-approval-presets = { git = "https://github.com/openai/codex", tag = "rust-v0.135.0" }
-codex-utils-cli = { git = "https://github.com/openai/codex", tag = "rust-v0.135.0" }
+codex-apply-patch = { git = "https://github.com/openai/codex", tag = "rust-v0.137.0" }
+codex-arg0 = { git = "https://github.com/openai/codex", tag = "rust-v0.137.0" }
+codex-config = { git = "https://github.com/openai/codex", tag = "rust-v0.137.0" }
+codex-core = { git = "https://github.com/openai/codex", tag = "rust-v0.137.0" }
+codex-exec-server = { git = "https://github.com/openai/codex", tag = "rust-v0.137.0" }
+codex-extension-api = { git = "https://github.com/openai/codex", tag = "rust-v0.137.0" }
+codex-features = { git = "https://github.com/openai/codex", tag = "rust-v0.137.0" }
+codex-git-utils = { git = "https://github.com/openai/codex", tag = "rust-v0.137.0" }
+codex-mcp-server = { git = "https://github.com/openai/codex", tag = "rust-v0.137.0" }
+codex-models-manager = { git = "https://github.com/openai/codex", tag = "rust-v0.137.0" }
+codex-protocol = { git = "https://github.com/openai/codex", tag = "rust-v0.137.0" }
+codex-login = { git = "https://github.com/openai/codex", tag = "rust-v0.137.0" }
+codex-shell-command = { git = "https://github.com/openai/codex", tag = "rust-v0.137.0" }
+codex-state = { git = "https://github.com/openai/codex", tag = "rust-v0.137.0" }
+codex-utils-approval-presets = { git = "https://github.com/openai/codex", tag = "rust-v0.137.0" }
+codex-utils-cli = { git = "https://github.com/openai/codex", tag = "rust-v0.137.0" }
 diffy = { version = "0.5.0", features = ["std"] }
-# Pin gix-actor to 0.40.0 because 0.40.1 bumped winnow to 1.0 in what is
-# technically a patch release, which makes it incompatible with gix-object
-# 0.58.0 (reached transitively via gix 0.81.0 -> codex-git-utils). Both crates
-# expose winnow types in their public APIs, so they must agree on the winnow
-# major version. Remove this pin once gix-object publishes a release compatible
-# with winnow 1.0 and the rest of the gix stack has picked it up.
-gix-actor = "=0.40.0"
+gix-actor = "0.40.0"
 itertools = "0.14.0"
 regex-lite = "0.1"
 serde = { version = "1", features = ["derive"] }
 # codex-cli depends on codex-tui, which enables serde_json/preserve_order; match
 # that behavior here because it affects MCP keychain account hashing.
 serde_json = { version = "1", features = ["preserve_order"] }
-shlex = "1"
+shlex = "2"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "io-std", "io-util"] }
 tokio-util = { version = "0.7", features = ["compat"] }
 tracing = { version = "0.1", features = ["log"] }
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 heck = "0.5.0"
-unicode-segmentation = "1.11.0"
+unicode-segmentation = "1.13"
 uuid = { version = "1", features = ["v4"] }
 
 [dev-dependencies]
-codex-utils-absolute-path = { git = "https://github.com/openai/codex", tag = "rust-v0.135.0" }
+codex-utils-absolute-path = { git = "https://github.com/openai/codex", tag = "rust-v0.137.0" }
 
 [lints.rust]
 let-underscore = "warn"
@@ -73,3 +67,11 @@ unused = "warn"
 [patch.crates-io]
 tokio-tungstenite = { git = "https://github.com/openai-oss-forks/tokio-tungstenite", rev = "132f5b39c862e3a970f731d709608b3e6276d5f6" }
 tungstenite = { git = "https://github.com/openai-oss-forks/tungstenite-rs", rev = "9200079d3b54a1ff51072e24d81fd354f085156f" }
+
+[profile.release]
+lto = "fat"
+codegen-units = 1
+strip = true
+
+[profile.dev]
+opt-level = 1

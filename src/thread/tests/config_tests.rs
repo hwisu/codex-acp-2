@@ -75,22 +75,6 @@ async fn config_model_options_keep_hidden_default_model() -> anyhow::Result<()> 
     Ok(())
 }
 
-#[test]
-fn model_id_accepts_agentclientprotocol_bracket_format() {
-    let parsed = ThreadActor::<StubAuth>::parse_model_id(&ModelId::new("gpt-5.4[high]"))
-        .expect("bracket model id should parse");
-
-    assert_eq!(parsed, ("gpt-5.4".to_string(), ReasoningEffort::High));
-}
-
-#[test]
-fn model_id_accepts_legacy_slash_format() {
-    let parsed = ThreadActor::<StubAuth>::parse_model_id(&ModelId::new("gpt-5.4/high"))
-        .expect("legacy slash model id should parse");
-
-    assert_eq!(parsed, ("gpt-5.4".to_string(), ReasoningEffort::High));
-}
-
 #[tokio::test]
 async fn config_options_expose_mode_model_and_reasoning_separately() -> anyhow::Result<()> {
     let (_, _, _, mut actor) = setup_actor().await?;
@@ -449,66 +433,6 @@ fn guardian_assessment_content_includes_action_risk_and_rationale() {
 }
 
 #[tokio::test]
-async fn setting_model_with_bracket_effort_sends_explicit_effort() -> anyhow::Result<()> {
-    let (_, _, thread, mut actor) = setup_actor().await?;
-
-    actor
-        .handle_set_model(ModelId::new("gpt-5.4[high]"))
-        .await?;
-
-    let ops = thread.ops();
-    assert!(matches!(
-        ops.as_slice(),
-        [Op::ThreadSettings {
-            thread_settings: ThreadSettingsOverrides {
-                model: Some(model),
-                effort: Some(Some(ReasoningEffort::High)),
-                ..
-            },
-        }] if model == "gpt-5.4"
-    ));
-
-    Ok(())
-}
-
-#[tokio::test]
-async fn setting_model_with_unsupported_effort_fails() -> anyhow::Result<()> {
-    let (_, _, thread, mut actor) = setup_actor().await?;
-
-    assert!(
-        actor
-            .handle_set_model(ModelId::new("gpt-5.4[warp]"))
-            .await
-            .is_err()
-    );
-    assert!(thread.ops().is_empty());
-
-    Ok(())
-}
-
-#[tokio::test]
-async fn setting_plain_model_preserves_supported_reasoning_effort() -> anyhow::Result<()> {
-    let (_, _, thread, mut actor) = setup_actor().await?;
-    actor.config.model_reasoning_effort = Some(ReasoningEffort::XHigh);
-
-    actor.handle_set_model(ModelId::new("gpt-5.4")).await?;
-
-    let ops = thread.ops();
-    assert!(matches!(
-        ops.as_slice(),
-        [Op::ThreadSettings {
-            thread_settings: ThreadSettingsOverrides {
-                model: Some(model),
-                effort: Some(Some(ReasoningEffort::XHigh)),
-                ..
-            },
-        }] if model == "gpt-5.4"
-    ));
-
-    Ok(())
-}
-
-#[tokio::test]
 async fn setting_custom_config_model_clears_reasoning_effort() -> anyhow::Result<()> {
     let (_, _, thread, mut actor) = setup_actor().await?;
     actor.config.model_reasoning_effort = None;
@@ -570,7 +494,12 @@ async fn setting_approval_preset_uses_dedicated_config_option() -> anyhow::Resul
 async fn setting_reasoning_effort_sends_effort_without_model_override() -> anyhow::Result<()> {
     let (_, _, thread, mut actor) = setup_actor().await?;
     actor
-        .handle_set_model(ModelId::new("gpt-5.4[high]"))
+        .handle_set_config_option(
+            SessionConfigId::new("model"),
+            SessionConfigOptionValue::ValueId {
+                value: SessionConfigValueId::new("gpt-5.4"),
+            },
+        )
         .await?;
 
     actor

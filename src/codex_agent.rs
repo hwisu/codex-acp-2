@@ -8,7 +8,7 @@ use acp::schema::{
     NewSessionResponse, PromptCapabilities, PromptRequest, PromptResponse, ProtocolVersion,
     SessionCapabilities, SessionCloseCapabilities, SessionId, SessionInfo, SessionListCapabilities,
     SetSessionConfigOptionRequest, SetSessionConfigOptionResponse, SetSessionModeRequest,
-    SetSessionModeResponse, SetSessionModelRequest, SetSessionModelResponse,
+    SetSessionModeResponse,
 };
 use acp::{Agent, Client, ConnectTo, ConnectionTo, Error};
 use agent_client_protocol as acp;
@@ -59,7 +59,7 @@ use codex_protocol::{
 use std::{
     collections::HashMap,
     path::{Path, PathBuf},
-    sync::{Arc, Mutex, MutexGuard},
+    sync::{Arc, Mutex, MutexGuard, RwLock, RwLockReadGuard},
     time::Duration,
 };
 use tracing::{debug, info};
@@ -85,7 +85,7 @@ pub struct CodexAgent {
     /// Optional sqlite state runtime used by Codex v0.129 thread storage APIs
     state_db: Option<StateDbHandle>,
     /// Active sessions mapped by `SessionId`
-    sessions: Arc<Mutex<HashMap<SessionId, Arc<Thread>>>>,
+    sessions: Arc<RwLock<HashMap<SessionId, Arc<Thread>>>>,
 }
 
 const SESSION_LIST_PAGE_SIZE: usize = 25;
@@ -98,6 +98,22 @@ fn lock_agent_state<'a, T>(
     mutex
         .lock()
         .map_err(|_| Error::internal_error().data(format!("{state_name} state is poisoned")))
+}
+
+fn read_sessions(
+    sessions: &RwLock<HashMap<SessionId, Arc<Thread>>>,
+) -> Result<RwLockReadGuard<'_, HashMap<SessionId, Arc<Thread>>>, Error> {
+    sessions
+        .read()
+        .map_err(|_| Error::internal_error().data("sessions state is poisoned"))
+}
+
+fn write_sessions(
+    sessions: &RwLock<HashMap<SessionId, Arc<Thread>>>,
+) -> Result<std::sync::RwLockWriteGuard<'_, HashMap<SessionId, Arc<Thread>>>, Error> {
+    sessions
+        .write()
+        .map_err(|_| Error::internal_error().data("sessions state is poisoned"))
 }
 
 fn rollout_items_from_history(history: InitialHistory) -> Vec<RolloutItem> {
@@ -516,10 +532,6 @@ impl CodexAgent {
                 acp::on_receive_request!(),
             )
             .on_receive_request(
-                acp_handler!(agent, SetSessionModelRequest, set_session_model),
-                acp::on_receive_request!(),
-            )
-            .on_receive_request(
                 acp_handler!(
                     agent,
                     SetSessionConfigOptionRequest,
@@ -536,10 +548,10 @@ impl CodexAgent {
     }
 
     fn get_thread(&self, session_id: &SessionId) -> Result<Arc<Thread>, Error> {
-        Ok(lock_agent_state(&self.sessions, "sessions")?
+        let thread = read_sessions(&self.sessions)?
             .get(session_id)
-            .ok_or_else(|| Error::resource_not_found(None))?
-            .clone())
+            .cloned();
+        thread.ok_or_else(|| Error::resource_not_found(None))
     }
 
     async fn check_auth(&self) -> Result<(), Error> {
@@ -562,12 +574,11 @@ impl CodexAgent {
     ) -> Result<Config, Error> {
         let mut config = self.config.clone();
         config.cwd = cwd.try_into().map_err(Error::into_internal_error)?;
-        let cwd = config.cwd.clone();
 
         // Propagate any client-provided MCP servers that codex-rs supports.
         let mut new_mcp_servers = config.mcp_servers.get().clone();
         for mcp_server in mcp_servers {
-            if let Some((name, mcp_server_config)) = convert_mcp_server(cwd.as_path(), mcp_server)?
+            if let Some((name, mcp_server_config)) = convert_mcp_server(config.cwd.as_path(), mcp_server)?
             {
                 new_mcp_servers.insert(name, mcp_server_config);
             }
@@ -778,13 +789,12 @@ impl CodexAgent {
         let thread = self.create_thread(session_id.clone(), thread_id, thread, config, cx);
         let load = thread.load().await?;
 
-        lock_agent_state(&self.sessions, "sessions")?.insert(session_id.clone(), thread);
+        write_sessions(&self.sessions)?.insert(session_id.clone(), thread);
 
         debug!("Created new session with {} MCP servers", num_mcp_servers);
 
         Ok(NewSessionResponse::new(session_id)
             .modes(load.modes)
-            .models(load.models)
             .config_options(load.config_options))
     }
 
@@ -805,7 +815,7 @@ impl CodexAgent {
         } = request;
 
         let existing_thread = {
-            lock_agent_state(&self.sessions, "sessions")?
+            read_sessions(&self.sessions)?
                 .get(&session_id)
                 .cloned()
         };
@@ -826,7 +836,6 @@ impl CodexAgent {
 
             return Ok(LoadSessionResponse::new()
                 .modes(load.modes)
-                .models(load.models)
                 .config_options(load.config_options));
         }
 
@@ -866,11 +875,10 @@ impl CodexAgent {
 
         let load = thread.load().await?;
 
-        lock_agent_state(&self.sessions, "sessions")?.insert(session_id, thread);
+        write_sessions(&self.sessions)?.insert(session_id, thread);
 
         Ok(LoadSessionResponse::new()
             .modes(load.modes)
-            .models(load.models)
             .config_options(load.config_options))
     }
 
@@ -950,7 +958,7 @@ impl CodexAgent {
                     .map_err(Error::into_internal_error)?,
             )
             .await;
-        lock_agent_state(&self.sessions, "sessions")?.remove(&request.session_id);
+        write_sessions(&self.sessions)?.remove(&request.session_id);
         Ok(CloseSessionResponse::new())
     }
 
@@ -981,19 +989,6 @@ impl CodexAgent {
             .set_mode(args.mode_id)
             .await?;
         Ok(SetSessionModeResponse::default())
-    }
-
-    async fn set_session_model(
-        &self,
-        args: SetSessionModelRequest,
-    ) -> Result<SetSessionModelResponse, Error> {
-        info!("Setting session model for session: {}", args.session_id);
-
-        self.get_thread(&args.session_id)?
-            .set_model(args.model_id)
-            .await?;
-
-        Ok(SetSessionModelResponse::default())
     }
 
     async fn set_session_config_option(
@@ -1077,7 +1072,7 @@ impl TryFrom<AuthMethodId> for CodexAuthMethod {
     }
 }
 
-fn truncate_graphemes(text: &str, max_graphemes: usize) -> String {
+fn truncate_graphemes(text: &str, max_graphemes: usize) -> std::borrow::Cow<'_, str> {
     let mut graphemes = text.grapheme_indices(true);
 
     if let Some((byte_index, _)) = graphemes.nth(max_graphemes) {
@@ -1085,16 +1080,16 @@ fn truncate_graphemes(text: &str, max_graphemes: usize) -> String {
             let mut truncate_graphemes = text.grapheme_indices(true);
             if let Some((truncate_byte_index, _)) = truncate_graphemes.nth(max_graphemes - 3) {
                 let truncated = &text[..truncate_byte_index];
-                format!("{truncated}...")
+                format!("{truncated}...").into()
             } else {
-                text.to_string()
+                text.into()
             }
         } else {
             let truncated = &text[..byte_index];
-            truncated.to_string()
+            truncated.to_string().into()
         }
     } else {
-        text.to_string()
+        text.into()
     }
 }
 
@@ -1104,7 +1099,7 @@ fn format_session_title(message: &str) -> Option<String> {
     if trimmed.is_empty() {
         None
     } else {
-        Some(truncate_graphemes(trimmed, SESSION_TITLE_MAX_GRAPHEMES))
+        Some(truncate_graphemes(trimmed, SESSION_TITLE_MAX_GRAPHEMES).into_owned())
     }
 }
 

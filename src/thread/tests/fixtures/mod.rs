@@ -22,7 +22,7 @@ pub(super) use std::time::Duration;
 pub(super) use agent_client_protocol::{
     Error, JsonRpcMessage,
     schema::{
-        ClientCapabilities, Content, ContentBlock, ContentChunk, Implementation, Meta, ModelId,
+        ClientCapabilities, Content, ContentBlock, ContentChunk, Implementation, Meta,
         PromptRequest, RequestPermissionOutcome, RequestPermissionRequest,
         RequestPermissionResponse, SelectedPermissionOutcome, SessionConfigId, SessionConfigKind,
         SessionConfigOptionCategory, SessionConfigOptionValue, SessionConfigSelectOptions,
