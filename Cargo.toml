@@ -19,6 +19,7 @@ path = "src/lib.rs"
 
 [dependencies]
 agent-client-protocol = { version = "=0.12.1", features = ["unstable"] }
+allocative = "=0.3.4"
 anyhow = "1"
 base64 = "0.22.1"
 clap = "4"
