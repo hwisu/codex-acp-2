@@ -31,13 +31,14 @@ pub(super) fn filter_model_presets_for_picker(
 
             preset
                 .supported_reasoning_efforts
-                .retain(|effort| reasoning_effort_is_high_or_higher(effort.effort));
+                .retain(|effort| reasoning_effort_is_high_or_higher(&effort.effort));
             if preset.supported_reasoning_efforts.is_empty() {
                 return None;
             }
 
-            if !reasoning_effort_is_high_or_higher(preset.default_reasoning_effort) {
-                preset.default_reasoning_effort = preset.supported_reasoning_efforts[0].effort;
+            if !reasoning_effort_is_high_or_higher(&preset.default_reasoning_effort) {
+                preset.default_reasoning_effort =
+                    preset.supported_reasoning_efforts[0].effort.clone();
             }
 
             Some(preset)
@@ -66,6 +67,6 @@ fn model_is_gpt_5_3_or_newer(model: &str) -> bool {
     major > 5 || (major == 5 && minor >= 3)
 }
 
-fn reasoning_effort_is_high_or_higher(effort: ReasoningEffort) -> bool {
+fn reasoning_effort_is_high_or_higher(effort: &ReasoningEffort) -> bool {
     matches!(effort, ReasoningEffort::High | ReasoningEffort::XHigh)
 }

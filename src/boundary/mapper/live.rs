@@ -44,6 +44,10 @@ pub(crate) fn route_live_event(event: EventMsg) -> LiveEventRoute {
             event: EventMsg::ModelVerification(event),
             reason: DiagnosticOnly,
         },
+        EventMsg::TurnModerationMetadata(event) => Ignore {
+            event: EventMsg::TurnModerationMetadata(event),
+            reason: DiagnosticOnly,
+        },
         EventMsg::ContextCompacted(_event) => effect_route(session_update::context_compacted()),
         EventMsg::ThreadRolledBack(event) => {
             effect_route(session_update::thread_rolled_back(event))
@@ -190,6 +194,10 @@ pub(crate) fn route_live_event(event: EventMsg) -> LiveEventRoute {
         },
         EventMsg::RealtimeConversationListVoicesResponse(event) => Ignore {
             event: EventMsg::RealtimeConversationListVoicesResponse(event),
+            reason: UnsupportedByAcp,
+        },
+        EventMsg::SubAgentActivity(event) => Ignore {
+            event: EventMsg::SubAgentActivity(event),
             reason: UnsupportedByAcp,
         },
         EventMsg::PlanUpdate(event) => effect_route(session_update::plan_effect(event.plan)),

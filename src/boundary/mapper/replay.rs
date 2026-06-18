@@ -16,6 +16,7 @@ pub(crate) fn route_replay_rollout_item(item: &RolloutItem) -> ReplayRolloutItem
             ReplayRolloutItemRoute::ResponseItem(route_replay_response_item(item))
         }
         RolloutItem::SessionMeta(..)
+        | RolloutItem::InterAgentCommunication(..)
         | RolloutItem::Compacted(..)
         | RolloutItem::TurnContext(..) => ReplayRolloutItemRoute::Ignore {
             item,
@@ -95,6 +96,7 @@ fn route_replay_event_action(event: &EventMsg) -> ReplayEventAction<'_> {
         | EventMsg::McpStartupComplete(..)
         | EventMsg::ModelReroute(..)
         | EventMsg::ModelVerification(..)
+        | EventMsg::TurnModerationMetadata(..)
         | EventMsg::StreamError(..)
         | EventMsg::DeprecationNotice(..) => ReplayEventAction::Ignore {
             event,
@@ -106,7 +108,8 @@ fn route_replay_event_action(event: &EventMsg) -> ReplayEventAction<'_> {
         | EventMsg::RealtimeConversationSdp(..)
         | EventMsg::RealtimeConversationListVoicesResponse(..)
         | EventMsg::HookStarted(..)
-        | EventMsg::HookCompleted(..) => ReplayEventAction::Ignore {
+        | EventMsg::HookCompleted(..)
+        | EventMsg::SubAgentActivity(..) => ReplayEventAction::Ignore {
             event,
             reason: UnsupportedByAcp,
         },
@@ -203,9 +206,9 @@ pub(crate) fn route_replay_response_item(item: &ResponseItem) -> ReplayResponseI
             name,
             arguments,
         },
-        ResponseItem::FunctionCallOutput { call_id, output } => {
-            ReplayResponseItemRoute::FunctionCallOutput { call_id, output }
-        }
+        ResponseItem::FunctionCallOutput {
+            call_id, output, ..
+        } => ReplayResponseItemRoute::FunctionCallOutput { call_id, output },
         ResponseItem::LocalShellCall {
             call_id: Some(call_id),
             action,
@@ -251,12 +254,14 @@ pub(crate) fn route_replay_response_item(item: &ResponseItem) -> ReplayResponseI
             name: _,
             call_id,
             output,
+            ..
         } => ReplayResponseItemRoute::CustomToolCallOutput { call_id, output },
         ResponseItem::WebSearchCall { id, action, .. } => ReplayResponseItemRoute::WebSearchCall {
             id: id.as_deref(),
             action: action.as_ref(),
         },
         ResponseItem::Message { .. }
+        | ResponseItem::AgentMessage { .. }
         | ResponseItem::Reasoning { .. }
         | ResponseItem::ImageGenerationCall { .. } => ReplayResponseItemRoute::Ignore {
             item,
@@ -264,7 +269,7 @@ pub(crate) fn route_replay_response_item(item: &ResponseItem) -> ReplayResponseI
         },
         ResponseItem::Compaction { .. }
         | ResponseItem::ContextCompaction { .. }
-        | ResponseItem::CompactionTrigger => ReplayResponseItemRoute::Ignore {
+        | ResponseItem::CompactionTrigger { .. } => ReplayResponseItemRoute::Ignore {
             item,
             reason: StateOnly,
         },

@@ -47,6 +47,7 @@ mod submission_web_image;
 use client::SessionClient;
 pub use deps::CodexThreadImpl;
 use deps::ModelsManagerImpl;
+pub(crate) use deps::goal_service;
 
 use crate::boundary::op;
 

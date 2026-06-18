@@ -1,6 +1,6 @@
 {
   "name": "@hwisu/codex-acp",
-  "version": "0.137.0",
+  "version": "0.141.0",
   "type": "module",
   "description": "An ACP-compatible coding agent powered by Codex",
   "license": "Apache-2.0",
@@ -28,11 +28,11 @@
     "bin"
   ],
   "optionalDependencies": {
-    "@hwisu/codex-acp-darwin-arm64": "0.137.0",
-    "@hwisu/codex-acp-darwin-x64": "0.137.0",
-    "@hwisu/codex-acp-linux-arm64": "0.137.0",
-    "@hwisu/codex-acp-linux-x64": "0.137.0",
-    "@hwisu/codex-acp-win32-arm64": "0.137.0",
-    "@hwisu/codex-acp-win32-x64": "0.137.0"
+    "@hwisu/codex-acp-darwin-arm64": "0.141.0",
+    "@hwisu/codex-acp-darwin-x64": "0.141.0",
+    "@hwisu/codex-acp-linux-arm64": "0.141.0",
+    "@hwisu/codex-acp-linux-x64": "0.141.0",
+    "@hwisu/codex-acp-win32-arm64": "0.141.0",
+    "@hwisu/codex-acp-win32-x64": "0.141.0"
   }
 }

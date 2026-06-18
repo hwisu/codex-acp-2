@@ -191,6 +191,7 @@ impl StubCodexThread {
             EventMsg::RequestUserInput(RequestUserInputEvent {
                 call_id: "user-input-call".to_string(),
                 turn_id: id.to_string(),
+                auto_resolution_ms: None,
                 questions: vec![RequestUserInputQuestion {
                     id: "confirm_path".to_string(),
                     header: "Confirm".to_string(),
@@ -218,6 +219,7 @@ impl StubCodexThread {
             EventMsg::RequestUserInput(RequestUserInputEvent {
                 call_id: "user-input-multi".to_string(),
                 turn_id: id.to_string(),
+                auto_resolution_ms: None,
                 questions: vec![
                     RequestUserInputQuestion {
                         id: "choice".to_string(),

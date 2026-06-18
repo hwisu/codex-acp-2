@@ -11,6 +11,7 @@ fn classifies_actor_owned_request_user_input_by_context() {
         EventMsg::RequestUserInput(codex_protocol::request_user_input::RequestUserInputEvent {
             call_id: "call".to_string(),
             turn_id: "turn".to_string(),
+            auto_resolution_ms: None,
             questions: vec![],
         });
 
@@ -59,6 +60,7 @@ fn classifies_rollout_items_without_fallback() {
     let item = RolloutItem::Compacted(codex_protocol::protocol::CompactedItem {
         message: "summary".to_string(),
         replacement_history: None,
+        window_id: None,
     });
 
     assert_eq!(
@@ -73,6 +75,7 @@ fn routes_live_request_user_input_to_actor_owned_ignore() {
         EventMsg::RequestUserInput(codex_protocol::request_user_input::RequestUserInputEvent {
             call_id: "call".to_string(),
             turn_id: "turn".to_string(),
+            auto_resolution_ms: None,
             questions: vec![],
         });
 
@@ -89,6 +92,7 @@ fn plans_actor_owned_request_user_input() {
         EventMsg::RequestUserInput(codex_protocol::request_user_input::RequestUserInputEvent {
             call_id: "call".to_string(),
             turn_id: "turn".to_string(),
+            auto_resolution_ms: None,
             questions: vec![],
         });
 

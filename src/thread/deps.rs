@@ -1,16 +1,30 @@
-use std::{future::Future, pin::Pin, sync::Arc};
+use std::{
+    future::Future,
+    pin::Pin,
+    sync::{Arc, LazyLock},
+};
 
 use agent_client_protocol::Error;
-use codex_core::{CodexThread, ExternalGoalPreviousStatus, ExternalGoalSet};
+use codex_core::CodexThread;
 use codex_features::Feature;
+use codex_goal_extension::{
+    GoalObjectiveUpdate, GoalService, GoalServiceError, GoalSetRequest as CodexGoalSetRequest,
+    GoalTokenBudgetUpdate,
+};
 use codex_login::auth::AuthManager;
 use codex_models_manager::manager::{ModelsManager, RefreshStrategy};
 use codex_protocol::{
     ThreadId,
     error::CodexErr,
     openai_models::ModelPreset,
-    protocol::{Event, Op, ThreadGoal, ThreadGoalStatus, validate_thread_goal_objective},
+    protocol::{Event, Op, ThreadGoal, ThreadGoalStatus},
 };
+
+static GOAL_SERVICE: LazyLock<Arc<GoalService>> = LazyLock::new(|| Arc::new(GoalService::new()));
+
+pub(crate) fn goal_service() -> Arc<GoalService> {
+    Arc::clone(&GOAL_SERVICE)
+}
 
 #[derive(Debug, Clone, Default)]
 pub(crate) struct ThreadGoalSetRequest {
@@ -74,14 +88,10 @@ impl CodexThreadImpl for CodexThread {
     ) -> Pin<Box<dyn Future<Output = Result<Option<ThreadGoal>, Error>> + Send + '_>> {
         Box::pin(async move {
             let state_db = state_db_for_thread_goals(self)?;
-            state_db
-                .thread_goals()
-                .get_thread_goal(thread_id)
+            goal_service()
+                .get_thread_goal(&state_db, thread_id)
                 .await
-                .map(|goal| goal.map(protocol_goal_from_state))
-                .map_err(|err| {
-                    Error::internal_error().data(format!("failed to read thread goal: {err}"))
-                })
+                .map_err(goal_service_error)
         })
     }
 
@@ -97,97 +107,26 @@ impl CodexThreadImpl for CodexThread {
                 status,
                 token_budget,
             } = request;
-            let objective = objective.map(|objective| objective.trim().to_string());
-            validate_goal_budget(token_budget.flatten())?;
-            if let Some(objective) = objective.as_deref() {
-                validate_thread_goal_objective(objective)
-                    .map_err(|message| Error::invalid_params().data(message))?;
-            }
-
-            self.prepare_external_goal_mutation().await;
-            let previous_goal = state_db
-                .thread_goals()
-                .get_thread_goal(thread_id)
-                .await
-                .map_err(|err| {
-                    Error::internal_error().data(format!("failed to read thread goal: {err}"))
-                })?;
-            let previous_status = previous_goal
-                .as_ref()
-                .map_or(ExternalGoalPreviousStatus::NewGoal, |goal| goal.into());
-
-            let status = status.map(state_goal_status_from_protocol);
-            let goal = if let Some(objective) = objective.as_deref() {
-                if let Some(goal) = previous_goal.as_ref().filter(|goal| {
-                    goal.objective == objective
-                        && goal.status != codex_state::ThreadGoalStatus::Complete
-                }) {
-                    state_db
-                        .thread_goals()
-                        .update_thread_goal(
-                            thread_id,
-                            codex_state::GoalUpdate {
-                                objective: None,
-                                status,
-                                token_budget,
-                                expected_goal_id: Some(goal.goal_id.clone()),
-                            },
-                        )
-                        .await
-                        .map_err(|err| {
-                            Error::internal_error()
-                                .data(format!("failed to update thread goal: {err}"))
-                        })?
-                        .ok_or_else(|| {
-                            Error::invalid_params().data(format!(
-                                "cannot update goal for thread {thread_id}: no goal exists"
-                            ))
-                        })?
-                } else {
-                    state_db
-                        .thread_goals()
-                        .replace_thread_goal(
-                            thread_id,
-                            objective,
-                            status.unwrap_or(codex_state::ThreadGoalStatus::Active),
-                            token_budget.flatten(),
-                        )
-                        .await
-                        .map_err(|err| {
-                            Error::internal_error()
-                                .data(format!("failed to replace thread goal: {err}"))
-                        })?
-                }
-            } else {
-                state_db
-                    .thread_goals()
-                    .update_thread_goal(
+            let service = goal_service();
+            let objective = objective
+                .as_deref()
+                .map_or(GoalObjectiveUpdate::Keep, GoalObjectiveUpdate::Set);
+            let token_budget =
+                token_budget.map_or(GoalTokenBudgetUpdate::Keep, GoalTokenBudgetUpdate::Set);
+            let outcome = service
+                .set_thread_goal(
+                    &state_db,
+                    CodexGoalSetRequest {
                         thread_id,
-                        codex_state::GoalUpdate {
-                            objective: None,
-                            status,
-                            token_budget,
-                            expected_goal_id: None,
-                        },
-                    )
-                    .await
-                    .map_err(|err| {
-                        Error::internal_error().data(format!("failed to update thread goal: {err}"))
-                    })?
-                    .ok_or_else(|| {
-                        Error::invalid_params().data(format!(
-                            "cannot update goal for thread {thread_id}: no goal exists"
-                        ))
-                    })?
-            };
-
-            let protocol_goal = protocol_goal_from_state(goal.clone());
-            self.apply_external_goal_set(ExternalGoalSet {
-                goal,
-                previous_status,
-            })
-            .await;
-            Ok(protocol_goal)
+                        objective,
+                        status,
+                        token_budget,
+                    },
+                )
+                .await
+                .map_err(goal_service_error)?;
+            outcome.apply_runtime_effects(&service).await;
+            Ok(outcome.goal)
         })
     }
 
@@ -197,19 +136,18 @@ impl CodexThreadImpl for CodexThread {
     ) -> Pin<Box<dyn Future<Output = Result<bool, Error>> + Send + '_>> {
         Box::pin(async move {
             let state_db = state_db_for_thread_goals(self)?;
-            self.prepare_external_goal_mutation().await;
-            let cleared = state_db
-                .thread_goals()
-                .delete_thread_goal(thread_id)
+            goal_service()
+                .clear_thread_goal(&state_db, thread_id)
                 .await
-                .map_err(|err| {
-                    Error::internal_error().data(format!("failed to clear thread goal: {err}"))
-                })?;
-            if cleared {
-                self.apply_external_goal_clear().await;
-            }
-            Ok(cleared)
+                .map_err(goal_service_error)
         })
+    }
+}
+
+fn goal_service_error(err: GoalServiceError) -> Error {
+    match err {
+        GoalServiceError::InvalidRequest(message) => Error::invalid_params().data(message),
+        GoalServiceError::Internal(message) => Error::internal_error().data(message),
     }
 }
 
@@ -229,48 +167,6 @@ fn state_db_for_thread_goals(
     thread
         .state_db()
         .ok_or_else(|| Error::internal_error().data("sqlite state db unavailable for thread goals"))
-}
-
-fn validate_goal_budget(value: Option<i64>) -> Result<(), Error> {
-    if value.is_some_and(|value| value <= 0) {
-        return Err(Error::invalid_params().data("goal budgets must be positive when provided"));
-    }
-    Ok(())
-}
-
-fn state_goal_status_from_protocol(status: ThreadGoalStatus) -> codex_state::ThreadGoalStatus {
-    match status {
-        ThreadGoalStatus::Active => codex_state::ThreadGoalStatus::Active,
-        ThreadGoalStatus::Paused => codex_state::ThreadGoalStatus::Paused,
-        ThreadGoalStatus::Blocked => codex_state::ThreadGoalStatus::Blocked,
-        ThreadGoalStatus::UsageLimited => codex_state::ThreadGoalStatus::UsageLimited,
-        ThreadGoalStatus::BudgetLimited => codex_state::ThreadGoalStatus::BudgetLimited,
-        ThreadGoalStatus::Complete => codex_state::ThreadGoalStatus::Complete,
-    }
-}
-
-fn protocol_goal_from_state(goal: codex_state::ThreadGoal) -> ThreadGoal {
-    ThreadGoal {
-        thread_id: goal.thread_id,
-        objective: goal.objective,
-        status: protocol_goal_status_from_state(goal.status),
-        token_budget: goal.token_budget,
-        tokens_used: goal.tokens_used,
-        time_used_seconds: goal.time_used_seconds,
-        created_at: goal.created_at.timestamp(),
-        updated_at: goal.updated_at.timestamp(),
-    }
-}
-
-fn protocol_goal_status_from_state(status: codex_state::ThreadGoalStatus) -> ThreadGoalStatus {
-    match status {
-        codex_state::ThreadGoalStatus::Active => ThreadGoalStatus::Active,
-        codex_state::ThreadGoalStatus::Paused => ThreadGoalStatus::Paused,
-        codex_state::ThreadGoalStatus::Blocked => ThreadGoalStatus::Blocked,
-        codex_state::ThreadGoalStatus::UsageLimited => ThreadGoalStatus::UsageLimited,
-        codex_state::ThreadGoalStatus::BudgetLimited => ThreadGoalStatus::BudgetLimited,
-        codex_state::ThreadGoalStatus::Complete => ThreadGoalStatus::Complete,
-    }
 }
 
 pub(crate) trait ModelsManagerImpl: Send + Sync {

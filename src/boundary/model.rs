@@ -129,10 +129,13 @@ mod tests {
     }
 
     #[test]
-    fn rejects_unknown_reasoning_effort() {
+    fn parses_custom_reasoning_effort() {
         assert_eq!(
-            require_compound_model_id(&ModelId::new("gpt-5.4[warp]")).unwrap_err(),
-            ModelIdParseError::InvalidReasoningEffort("warp".to_string())
+            require_compound_model_id(&ModelId::new("gpt-5.4[warp]")).unwrap(),
+            ModelSelection {
+                model: "gpt-5.4".to_string(),
+                reasoning_effort: Some(ReasoningEffort::Custom("warp".to_string())),
+            }
         );
     }
 }

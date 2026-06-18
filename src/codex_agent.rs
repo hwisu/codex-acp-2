@@ -48,8 +48,9 @@ use codex_core::{
 use codex_exec_server::{EnvironmentManager, ExecServerRuntimePaths};
 use codex_extension_api::ExtensionRegistryBuilder;
 use codex_features::Feature;
+use codex_home::CodexHomeUserInstructionsProvider;
 use codex_login::{
-    CODEX_API_KEY_ENV_VAR, OPENAI_API_KEY_ENV_VAR,
+    AuthKeyringBackendKind, CODEX_API_KEY_ENV_VAR, OPENAI_API_KEY_ENV_VAR,
     auth::{AuthManager, CodexAuth, read_codex_api_key_from_env, read_openai_api_key_from_env},
 };
 use codex_protocol::{
@@ -81,7 +82,7 @@ pub struct CodexAgent {
     /// The underlying codex configuration
     config: Config,
     /// Thread manager for handling sessions
-    thread_manager: ThreadManager,
+    thread_manager: Arc<ThreadManager>,
     /// Optional sqlite state runtime used by Codex v0.129 thread storage APIs
     state_db: Option<StateDbHandle>,
     /// Active sessions mapped by `SessionId`
@@ -352,6 +353,7 @@ fn select_env_api_key_for_ephemeral_auth(
 fn seed_ephemeral_api_key_auth(
     codex_home: &Path,
     api_key: Option<String>,
+    keyring_backend_kind: AuthKeyringBackendKind,
 ) -> std::io::Result<bool> {
     let Some(api_key) = api_key else {
         return Ok(false);
@@ -361,17 +363,22 @@ fn seed_ephemeral_api_key_auth(
         codex_home,
         &api_key,
         codex_login::AuthCredentialsStoreMode::Ephemeral,
+        keyring_backend_kind,
     )?;
     Ok(true)
 }
 
-fn seed_ephemeral_api_key_auth_from_env(codex_home: &Path) -> std::io::Result<bool> {
+fn seed_ephemeral_api_key_auth_from_env(
+    codex_home: &Path,
+    keyring_backend_kind: AuthKeyringBackendKind,
+) -> std::io::Result<bool> {
     seed_ephemeral_api_key_auth(
         codex_home,
         select_env_api_key_for_ephemeral_auth(
             read_codex_api_key_from_env(),
             read_openai_api_key_from_env(),
         ),
+        keyring_backend_kind,
     )
 }
 
@@ -418,12 +425,14 @@ impl CodexAgent {
         codex_linux_sandbox_exe: Option<PathBuf>,
     ) -> std::io::Result<Self> {
         apply_codex_acp_default_features(&mut config);
-        seed_ephemeral_api_key_auth_from_env(&config.codex_home)?;
+        let auth_keyring_backend_kind = config.auth_keyring_backend_kind();
+        seed_ephemeral_api_key_auth_from_env(&config.codex_home, auth_keyring_backend_kind)?;
         let auth_manager = AuthManager::shared(
             config.codex_home.to_path_buf(),
             false,
             config.cli_auth_credentials_store_mode,
             Some(config.chatgpt_base_url.clone()),
+            auth_keyring_backend_kind,
         )
         .await;
 
@@ -432,28 +441,48 @@ impl CodexAgent {
         let state_db = init_state_db(&config).await;
         let thread_store = thread_store_from_config(&config, state_db.clone());
         let installation_id = resolve_installation_id(&config.codex_home).await?;
-        let environment_manager = EnvironmentManager::from_codex_home(
-            config.codex_home.as_path(),
-            Some(ExecServerRuntimePaths::new(
-                std::env::current_exe()?,
-                codex_linux_sandbox_exe,
-            )?),
-        )
-        .await
-        .map_err(std::io::Error::other)?;
-        let extensions = ExtensionRegistryBuilder::new().build();
-        let thread_manager = ThreadManager::new(
-            &config,
-            auth_manager.clone(),
-            SessionSource::Unknown,
-            Arc::new(environment_manager),
-            Arc::new(extensions),
-            None,
-            thread_store,
-            state_db.clone(),
-            installation_id,
-            None,
+        let environment_manager = Arc::new(
+            EnvironmentManager::from_codex_home(
+                config.codex_home.as_path(),
+                Some(ExecServerRuntimePaths::new(
+                    std::env::current_exe()?,
+                    codex_linux_sandbox_exe,
+                )?),
+            )
+            .await
+            .map_err(std::io::Error::other)?,
         );
+        let goal_service = crate::thread::goal_service();
+        let analytics_events_client = codex_analytics::AnalyticsEventsClient::disabled();
+        let thread_manager = Arc::new_cyclic(|thread_manager| {
+            let mut extensions = ExtensionRegistryBuilder::new();
+            if let Some(state_db) = state_db.clone() {
+                codex_goal_extension::install_with_backend(
+                    &mut extensions,
+                    state_db,
+                    analytics_events_client.clone(),
+                    None,
+                    thread_manager.clone(),
+                    goal_service.clone(),
+                    |config: &Config| config.features.enabled(Feature::Goals),
+                );
+            }
+            ThreadManager::new(
+                &config,
+                auth_manager.clone(),
+                SessionSource::Unknown,
+                environment_manager.clone(),
+                Arc::new(extensions.build()),
+                Arc::new(CodexHomeUserInstructionsProvider::new(
+                    config.codex_home.clone(),
+                )),
+                None,
+                Arc::clone(&thread_store),
+                state_db.clone(),
+                installation_id.clone(),
+                None,
+            )
+        });
         Ok(Self {
             auth_manager,
             client_capabilities,
@@ -548,9 +577,7 @@ impl CodexAgent {
     }
 
     fn get_thread(&self, session_id: &SessionId) -> Result<Arc<Thread>, Error> {
-        let thread = read_sessions(&self.sessions)?
-            .get(session_id)
-            .cloned();
+        let thread = read_sessions(&self.sessions)?.get(session_id).cloned();
         thread.ok_or_else(|| Error::resource_not_found(None))
     }
 
@@ -578,7 +605,8 @@ impl CodexAgent {
         // Propagate any client-provided MCP servers that codex-rs supports.
         let mut new_mcp_servers = config.mcp_servers.get().clone();
         for mcp_server in mcp_servers {
-            if let Some((name, mcp_server_config)) = convert_mcp_server(config.cwd.as_path(), mcp_server)?
+            if let Some((name, mcp_server_config)) =
+                convert_mcp_server(config.cwd.as_path(), mcp_server)?
             {
                 new_mcp_servers.insert(name, mcp_server_config);
             }
@@ -661,6 +689,7 @@ impl CodexAgent {
                     codex_login::auth::CLIENT_ID.to_string(),
                     None,
                     self.config.cli_auth_credentials_store_mode,
+                    self.config.auth_keyring_backend_kind(),
                 );
 
                 let server =
@@ -679,6 +708,7 @@ impl CodexAgent {
                     &self.config.codex_home,
                     &api_key,
                     self.config.cli_auth_credentials_store_mode,
+                    self.config.auth_keyring_backend_kind(),
                 )?;
             }
             CodexAuthMethod::OpenAiApiKey => {
@@ -689,6 +719,7 @@ impl CodexAgent {
                     &self.config.codex_home,
                     &api_key,
                     self.config.cli_auth_credentials_store_mode,
+                    self.config.auth_keyring_backend_kind(),
                 )?;
             }
         }
@@ -756,8 +787,9 @@ impl CodexAgent {
         codex_home: &Path,
         api_key: &str,
         store_mode: codex_login::AuthCredentialsStoreMode,
+        keyring_backend_kind: AuthKeyringBackendKind,
     ) -> Result<(), Error> {
-        codex_login::login_with_api_key(codex_home, api_key, store_mode)
+        codex_login::login_with_api_key(codex_home, api_key, store_mode, keyring_backend_kind)
             .map_err(Error::into_internal_error)
     }
 
@@ -814,11 +846,7 @@ impl CodexAgent {
             ..
         } = request;
 
-        let existing_thread = {
-            read_sessions(&self.sessions)?
-                .get(&session_id)
-                .cloned()
-        };
+        let existing_thread = { read_sessions(&self.sessions)?.get(&session_id).cloned() };
         if let Some(thread) = existing_thread {
             let rollout_items = self.live_session_rollout_items(&session_id).await;
             thread
@@ -1143,11 +1171,13 @@ mod tests {
     #[tokio::test]
     async fn seed_ephemeral_api_key_auth_does_not_write_auth_json() -> anyhow::Result<()> {
         let codex_home = temp_codex_home();
+        let keyring_backend_kind = AuthKeyringBackendKind::default();
         let auth_file = codex_home.join("auth.json");
 
         assert!(seed_ephemeral_api_key_auth(
             &codex_home,
-            Some("sk-ephemeral".to_string())
+            Some("sk-ephemeral".to_string()),
+            keyring_backend_kind,
         )?);
 
         let auth_manager = AuthManager::shared(
@@ -1155,6 +1185,7 @@ mod tests {
             false,
             codex_login::AuthCredentialsStoreMode::File,
             None,
+            keyring_backend_kind,
         )
         .await;
         let auth = auth_manager
@@ -1168,6 +1199,7 @@ mod tests {
         drop(codex_login::logout(
             &codex_home,
             codex_login::AuthCredentialsStoreMode::Ephemeral,
+            keyring_backend_kind,
         ));
         drop(std::fs::remove_dir_all(&codex_home));
         Ok(())
@@ -1176,19 +1208,26 @@ mod tests {
     #[tokio::test]
     async fn missing_ephemeral_api_key_preserves_existing_storage_auth() -> anyhow::Result<()> {
         let codex_home = temp_codex_home();
+        let keyring_backend_kind = AuthKeyringBackendKind::default();
         codex_login::login_with_api_key(
             &codex_home,
             "sk-stored",
             codex_login::AuthCredentialsStoreMode::File,
+            keyring_backend_kind,
         )?;
 
-        assert!(!seed_ephemeral_api_key_auth(&codex_home, None)?);
+        assert!(!seed_ephemeral_api_key_auth(
+            &codex_home,
+            None,
+            keyring_backend_kind,
+        )?);
 
         let auth_manager = AuthManager::shared(
             codex_home.clone(),
             false,
             codex_login::AuthCredentialsStoreMode::File,
             None,
+            keyring_backend_kind,
         )
         .await;
         let auth = auth_manager.auth().await.expect("stored auth should load");
@@ -1198,6 +1237,7 @@ mod tests {
         drop(codex_login::logout(
             &codex_home,
             codex_login::AuthCredentialsStoreMode::File,
+            keyring_backend_kind,
         ));
         drop(std::fs::remove_dir_all(&codex_home));
         Ok(())

@@ -128,8 +128,7 @@ impl<A: Auth> ThreadActor<A> {
             let pending_submission_id = self.state.pending_submission_id();
             self.submissions.retain(|submission_id, submission| {
                 submission.is_active()
-                    || pending_submission_id
-                        .is_some_and(|pending| pending == submission_id)
+                    || pending_submission_id.is_some_and(|pending| pending == submission_id)
             });
 
             if !message_rx_open && self.submissions.is_empty() {

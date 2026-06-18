@@ -28,7 +28,7 @@ pub(crate) fn collab_spawn_begin_tool_call(event: &CollabAgentSpawnBeginEvent) -
         .raw_input(raw::collab_spawn_begin(event))
         .content(collab_spawn_begin_content(
             &event.model,
-            event.reasoning_effort,
+            event.reasoning_effort.clone(),
             &event.prompt,
         ))
 }

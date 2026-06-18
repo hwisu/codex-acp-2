@@ -51,6 +51,7 @@ fn route_actor_event(msg: &EventMsg) -> ActorEventAction {
         | EventMsg::RealtimeConversationSdp(..)
         | EventMsg::ModelReroute(..)
         | EventMsg::ModelVerification(..)
+        | EventMsg::TurnModerationMetadata(..)
         | EventMsg::ContextCompacted(..)
         | EventMsg::ThreadRolledBack(..)
         | EventMsg::ThreadSettingsApplied(..)
@@ -109,7 +110,8 @@ fn route_actor_event(msg: &EventMsg) -> ActorEventAction {
         | EventMsg::CollabCloseBegin(..)
         | EventMsg::CollabCloseEnd(..)
         | EventMsg::CollabResumeBegin(..)
-        | EventMsg::CollabResumeEnd(..) => actor_route_to_submission(msg, NoClear, None),
+        | EventMsg::CollabResumeEnd(..)
+        | EventMsg::SubAgentActivity(..) => actor_route_to_submission(msg, NoClear, None),
     }
 }
 
@@ -203,6 +205,7 @@ pub(crate) fn actor_state_updates(event: &EventMsg) -> Vec<ActorStateUpdate> {
         | EventMsg::RealtimeConversationSdp(..)
         | EventMsg::ModelReroute(..)
         | EventMsg::ModelVerification(..)
+        | EventMsg::TurnModerationMetadata(..)
         | EventMsg::ContextCompacted(..)
         | EventMsg::ThreadRolledBack(..)
         | EventMsg::ThreadSettingsApplied(..)
@@ -260,6 +263,7 @@ pub(crate) fn actor_state_updates(event: &EventMsg) -> Vec<ActorStateUpdate> {
         | EventMsg::CollabAgentInteractionBegin(..)
         | EventMsg::CollabWaitingBegin(..)
         | EventMsg::CollabCloseBegin(..)
-        | EventMsg::CollabResumeBegin(..) => Vec::new(),
+        | EventMsg::CollabResumeBegin(..)
+        | EventMsg::SubAgentActivity(..) => Vec::new(),
     }
 }

@@ -10,6 +10,7 @@ async fn test_replay_history_restores_pending_user_input() -> anyhow::Result<()>
             RequestUserInputEvent {
                 call_id: "replay-input".to_string(),
                 turn_id: "replay-turn".to_string(),
+                auto_resolution_ms: None,
                 questions: vec![RequestUserInputQuestion {
                     id: "confirm_path".to_string(),
                     header: "Confirm".to_string(),
@@ -166,6 +167,7 @@ async fn test_replay_exec_command_function_call_preserves_shell_metadata() -> an
             })
             .to_string(),
             call_id: "exec-replay".to_string(),
+            metadata: None,
         })],
         response_tx: replay_response_tx,
     })?;
@@ -199,6 +201,7 @@ async fn test_replay_invalid_exec_command_arguments_remain_generic() -> anyhow::
             })
             .to_string(),
             call_id: "invalid-exec-replay".to_string(),
+            metadata: None,
         })],
         response_tx: replay_response_tx,
     })?;

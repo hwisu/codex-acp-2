@@ -184,10 +184,7 @@ pub(crate) fn format_collab_prompt(prompt: &str) -> Option<String> {
 
 pub(crate) fn format_collab_waiting_statuses(entries: &[CollabAgentStatusEntry]) -> Option<String> {
     (!entries.is_empty()).then(|| {
-        let lines = entries
-            .iter()
-            .map(format_collab_status_entry)
-            .join("\n");
+        let lines = entries.iter().map(format_collab_status_entry).join("\n");
         format!("Agents:\n{lines}")
     })
 }

@@ -71,6 +71,7 @@ impl<A: Auth> ThreadActor<A> {
         let reasoning_effort = self
             .config
             .model_reasoning_effort
+            .as_ref()
             .map_or_else(|| "default".to_string(), |effort| effort.to_string());
         let approval_preset = current_session_mode_id(&self.config)
             .map_or_else(|| "custom".to_string(), |mode| mode.0.to_string());

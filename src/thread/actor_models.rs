@@ -1,7 +1,4 @@
-use agent_client_protocol::{
-    Error,
-    schema::SessionConfigValueId,
-};
+use agent_client_protocol::{Error, schema::SessionConfigValueId};
 use codex_protocol::openai_models::{ModelPreset, ReasoningEffort};
 
 use crate::boundary::{
@@ -31,8 +28,11 @@ impl<A: Auth> ThreadActor<A> {
         let model_id = value.0;
 
         let presets = self.model_presets().await;
-        let selection =
-            select_config_model(&model_id, &presets, self.config.model_reasoning_effort)?;
+        let selection = select_config_model(
+            &model_id,
+            &presets,
+            self.config.model_reasoning_effort.clone(),
+        )?;
 
         self.apply_selected_model(selection).await?;
 
@@ -53,13 +53,13 @@ impl<A: Auth> ThreadActor<A> {
                 .data("Reasoning effort can only be set for known model presets"));
         };
 
-        if !supports_reasoning_effort(preset, effort) {
+        if !supports_reasoning_effort(preset, &effort) {
             return Err(
                 Error::invalid_params().data("Unsupported reasoning effort for selected model")
             );
         }
 
-        self.submit_model_override(None, ReasoningEffortOverride::Set(effort))
+        self.submit_model_override(None, ReasoningEffortOverride::Set(effort.clone()))
             .await?;
 
         self.config.model_reasoning_effort = Some(effort);
@@ -73,7 +73,7 @@ impl<A: Auth> ThreadActor<A> {
         let Some(selection) = normalized_current_model_selection(
             &current_model,
             &presets,
-            self.config.model_reasoning_effort,
+            self.config.model_reasoning_effort.clone(),
         ) else {
             return Ok(());
         };
@@ -91,7 +91,7 @@ impl<A: Auth> ThreadActor<A> {
     async fn apply_selected_model(&mut self, selection: ModelSelection) -> Result<(), Error> {
         self.submit_model_override(
             Some(selection.model.clone()),
-            ReasoningEffortOverride::from_selected_effort(selection.reasoning_effort),
+            ReasoningEffortOverride::from_selected_effort(selection.reasoning_effort.clone()),
         )
         .await?;
         self.config.model = Some(selection.model);
@@ -122,9 +122,15 @@ fn select_config_model(
         return Err(Error::invalid_params().data("No model selected"));
     }
 
-    let reasoning_effort = preset.map_or(configured_effort, |preset| {
-        Some(effective_reasoning_effort(preset, configured_effort))
-    });
+    let reasoning_effort = preset.map_or_else(
+        || configured_effort.clone(),
+        |preset| {
+            Some(effective_reasoning_effort(
+                preset,
+                configured_effort.as_ref(),
+            ))
+        },
+    );
 
     Ok(ModelSelection {
         model,
@@ -138,9 +144,9 @@ fn normalized_current_model_selection(
     configured_effort: Option<ReasoningEffort>,
 ) -> Option<ModelSelection> {
     let preset = resolve_model_preset(presets, Some(current_model))?;
-    let effort = effective_reasoning_effort(preset, configured_effort);
+    let effort = effective_reasoning_effort(preset, configured_effort.as_ref());
 
-    if preset.model == current_model && configured_effort == Some(effort) {
+    if preset.model == current_model && configured_effort.as_ref() == Some(&effort) {
         return None;
     }
 
@@ -150,18 +156,19 @@ fn normalized_current_model_selection(
     })
 }
 
-fn supports_reasoning_effort(preset: &ModelPreset, effort: ReasoningEffort) -> bool {
+fn supports_reasoning_effort(preset: &ModelPreset, effort: &ReasoningEffort) -> bool {
     preset
         .supported_reasoning_efforts
         .iter()
-        .any(|supported| supported.effort == effort)
+        .any(|supported| &supported.effort == effort)
 }
 
 fn effective_reasoning_effort(
     preset: &ModelPreset,
-    configured_effort: Option<ReasoningEffort>,
+    configured_effort: Option<&ReasoningEffort>,
 ) -> ReasoningEffort {
     configured_effort
-        .filter(|effort| supports_reasoning_effort(preset, *effort))
-        .unwrap_or(preset.default_reasoning_effort)
+        .filter(|effort| supports_reasoning_effort(preset, effort))
+        .cloned()
+        .unwrap_or_else(|| preset.default_reasoning_effort.clone())
 }

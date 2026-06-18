@@ -104,7 +104,7 @@ impl<A: Auth> ThreadActor<A> {
     ) -> Result<(), Error> {
         let model = self.get_current_model().await;
         let collaboration_mode =
-            collaboration_mode_for_kind(kind, model, self.config.model_reasoning_effort)
+            collaboration_mode_for_kind(kind, model, self.config.model_reasoning_effort.clone())
                 .ok_or_else(|| {
                     Error::internal_error().data(format!(
                         "No collaboration preset found for {} mode",

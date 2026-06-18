@@ -91,6 +91,7 @@ pub(crate) fn classify_event_msg(
         | EventMsg::McpStartupComplete(..)
         | EventMsg::ModelReroute(..)
         | EventMsg::ModelVerification(..)
+        | EventMsg::TurnModerationMetadata(..)
         | EventMsg::StreamError(..)
         | EventMsg::DeprecationNotice(..) => Ignore(DiagnosticOnly),
         EventMsg::EnteredReviewMode(..) => Ignore(StateOnly),
@@ -101,7 +102,8 @@ pub(crate) fn classify_event_msg(
         | EventMsg::RealtimeConversationRealtime(..)
         | EventMsg::RealtimeConversationClosed(..)
         | EventMsg::RealtimeConversationSdp(..)
-        | EventMsg::RealtimeConversationListVoicesResponse(..) => Ignore(UnsupportedByAcp),
+        | EventMsg::RealtimeConversationListVoicesResponse(..)
+        | EventMsg::SubAgentActivity(..) => Ignore(UnsupportedByAcp),
     }
 }
 
@@ -122,14 +124,14 @@ pub(crate) fn classify_response_item(item: &ResponseItem) -> BridgeEffectKind {
             call_id: Some(_), ..
         } => Forward,
 
-        ResponseItem::Message { .. } | ResponseItem::Reasoning { .. } => {
-            Ignore(AlreadyRenderedByAnotherEvent)
-        }
+        ResponseItem::Message { .. }
+        | ResponseItem::AgentMessage { .. }
+        | ResponseItem::Reasoning { .. } => Ignore(AlreadyRenderedByAnotherEvent),
         ResponseItem::LocalShellCall { call_id: None, .. } => Ignore(MissingToolCallId),
         ResponseItem::ImageGenerationCall { .. } => Ignore(AlreadyRenderedByAnotherEvent),
         ResponseItem::Compaction { .. }
         | ResponseItem::ContextCompaction { .. }
-        | ResponseItem::CompactionTrigger => Ignore(StateOnly),
+        | ResponseItem::CompactionTrigger { .. } => Ignore(StateOnly),
         ResponseItem::ToolSearchCall { .. }
         | ResponseItem::ToolSearchOutput { .. }
         | ResponseItem::Other => Ignore(UnsupportedByAcp),
@@ -142,6 +144,7 @@ pub(crate) fn classify_rollout_item(item: &RolloutItem) -> BridgeEffectKind {
         RolloutItem::EventMsg(event) => classify_event_msg(event, BridgeEventContext::Replay),
         RolloutItem::ResponseItem(item) => classify_response_item(item),
         RolloutItem::SessionMeta(..)
+        | RolloutItem::InterAgentCommunication(..)
         | RolloutItem::Compacted(..)
         | RolloutItem::TurnContext(..) => {
             BridgeEffectKind::Ignore(IgnoredCodexEventReason::StateOnly)
