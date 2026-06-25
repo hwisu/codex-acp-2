@@ -77,6 +77,8 @@ impl<A: Auth> ThreadActor<A> {
                 "show the current token usage, context window, rate limits, and credits",
             ),
             AvailableCommand::new("agent", "show the subagents this ACP session knows about"),
+            AvailableCommand::new("mcp", "show configured MCP servers for this session"),
+            AvailableCommand::new("skills", "show Codex skill settings for this session"),
             AvailableCommand::new(
                 "ps",
                 "list active background tool calls tracked by this adapter",
@@ -174,6 +176,16 @@ impl<A: Auth> ThreadActor<A> {
             "agent" | "subagents" => {
                 return Ok(PromptSubmission::Handled {
                     message: self.subagent_summary(),
+                });
+            }
+            "mcp" => {
+                return Ok(PromptSubmission::Handled {
+                    message: self.mcp_summary(),
+                });
+            }
+            "skills" => {
+                return Ok(PromptSubmission::Handled {
+                    message: self.skills_summary(),
                 });
             }
             "ps" => {

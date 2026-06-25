@@ -4,16 +4,19 @@ use acp::schema::{
         AgentAuthCapabilities, AgentCapabilities, AuthEnvVar, AuthMethod, AuthMethodAgent,
         AuthMethodEnvVar, AuthMethodId, AuthenticateRequest, AuthenticateResponse,
         CancelNotification, ClientCapabilities, CloseSessionRequest, CloseSessionResponse,
-        Implementation, InitializeRequest, InitializeResponse, ListSessionsRequest,
-        ListSessionsResponse, LoadSessionRequest, LoadSessionResponse, LogoutCapabilities,
-        LogoutRequest, LogoutResponse, McpCapabilities, McpServer, McpServerHttp, McpServerStdio,
-        Meta, NewSessionRequest, NewSessionResponse, PromptCapabilities, PromptRequest,
-        PromptResponse, SessionCapabilities, SessionCloseCapabilities, SessionId, SessionInfo,
-        SessionListCapabilities, SetSessionConfigOptionRequest, SetSessionConfigOptionResponse,
+        DeleteSessionRequest, DeleteSessionResponse, Implementation, InitializeRequest,
+        InitializeResponse, ListSessionsRequest, ListSessionsResponse, LoadSessionRequest,
+        LoadSessionResponse, LogoutCapabilities, LogoutRequest, LogoutResponse, McpCapabilities,
+        McpServer, McpServerHttp, McpServerStdio, Meta, NewSessionRequest, NewSessionResponse,
+        PromptCapabilities, PromptRequest, PromptResponse, ResumeSessionRequest,
+        ResumeSessionResponse, SessionAdditionalDirectoriesCapabilities, SessionCapabilities,
+        SessionCloseCapabilities, SessionConfigId, SessionConfigOptionValue,
+        SessionDeleteCapabilities, SessionId, SessionInfo, SessionListCapabilities,
+        SessionResumeCapabilities, SetSessionConfigOptionRequest, SetSessionConfigOptionResponse,
         SetSessionModeRequest, SetSessionModeResponse,
     },
 };
-use acp::{Agent, Client, ConnectTo, ConnectionTo, Error};
+use acp::{Agent, Client, ConnectTo, ConnectionTo, Error, Handled, Responder, UntypedMessage};
 use agent_client_protocol as acp;
 
 use crate::boundary::constants::meta as boundary_meta;
@@ -42,7 +45,9 @@ macro_rules! acp_handler_with_cx {
         }
     }};
 }
-use codex_config::{AppToolApproval, McpServerConfig, McpServerEnvVar, McpServerTransportConfig};
+use codex_config::{
+    AbsolutePathBuf, AppToolApproval, McpServerConfig, McpServerEnvVar, McpServerTransportConfig,
+};
 use codex_core::{
     NewThread, RolloutRecorder, SortDirection, StateDbHandle, ThreadManager, ThreadSortKey,
     config::Config, find_thread_path_by_id_str, init_state_db, parse_cursor,
@@ -56,12 +61,13 @@ use codex_login::{
     AuthKeyringBackendKind, CODEX_API_KEY_ENV_VAR, OPENAI_API_KEY_ENV_VAR,
     auth::{AuthManager, CodexAuth, read_codex_api_key_from_env, read_openai_api_key_from_env},
 };
+use codex_model_provider_info::{ModelProviderInfo, WireApi};
 use codex_protocol::{
     ThreadId,
     protocol::{InitialHistory, RolloutItem, SessionSource},
 };
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     path::{Path, PathBuf},
     sync::{Arc, Mutex, MutexGuard, RwLock, RwLockReadGuard},
     time::Duration,
@@ -84,6 +90,8 @@ pub struct CodexAgent {
     client_info: Arc<Mutex<Option<Implementation>>>,
     /// The underlying codex configuration
     config: Config,
+    /// Custom gateway auth requested by ACP clients.
+    gateway_auth: Arc<Mutex<Option<GatewayAuthConfig>>>,
     /// Thread manager for handling sessions
     thread_manager: Arc<ThreadManager>,
     /// Optional sqlite state runtime used by Codex v0.129 thread storage APIs
@@ -94,6 +102,54 @@ pub struct CodexAgent {
 
 const SESSION_LIST_PAGE_SIZE: usize = 25;
 const SESSION_TITLE_MAX_GRAPHEMES: usize = 120;
+const OFFICIAL_API_KEY_AUTH_METHOD_ID: &str = "api-key";
+const OFFICIAL_CHAT_GPT_AUTH_METHOD_ID: &str = "chat-gpt";
+const GATEWAY_AUTH_METHOD_ID: &str = "gateway";
+const CUSTOM_GATEWAY_PROVIDER_ID: &str = "custom-gateway";
+const CUSTOM_GATEWAY_FEATURE_HEADER: &str = "X-Client-Feature-ID";
+const AUTHENTICATION_STATUS_METHOD: &str = "authentication/status";
+const AUTHENTICATION_LOGOUT_METHOD: &str = "authentication/logout";
+const LEGACY_SET_SESSION_MODEL_METHOD: &str = "session/set_model";
+
+#[derive(Debug, Clone)]
+struct GatewayAuthConfig {
+    base_url: String,
+    headers: HashMap<String, String>,
+    provider_name: String,
+}
+
+#[derive(Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct GatewayAuthMeta {
+    base_url: String,
+    #[serde(default)]
+    headers: HashMap<String, String>,
+    provider_name: Option<String>,
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct GatewayAuthRequestMeta {
+    gateway: GatewayAuthMeta,
+}
+
+#[derive(Debug, serde::Deserialize)]
+#[serde(rename_all = "kebab-case")]
+struct ApiKeyAuthRequestMeta {
+    api_key: ApiKeyAuthPayload,
+}
+
+#[derive(Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ApiKeyAuthPayload {
+    api_key: String,
+}
+
+#[derive(Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct LegacySetSessionModelParams {
+    session_id: SessionId,
+    model_id: String,
+}
 
 fn lock_agent_state<'a, T>(
     mutex: &'a Mutex<T>,
@@ -385,6 +441,98 @@ fn seed_ephemeral_api_key_auth_from_env(
     )
 }
 
+fn meta_value(meta: &Option<Meta>, key: &str) -> Option<serde_json::Value> {
+    meta.as_ref().and_then(|meta| meta.get(key)).cloned()
+}
+
+fn api_key_from_auth_meta(meta: Option<Meta>) -> Result<Option<String>, Error> {
+    let Some(meta) = meta else {
+        return Ok(None);
+    };
+    let ApiKeyAuthRequestMeta { api_key } = serde_json::from_value(serde_json::Value::Object(meta))
+        .map_err(|err| {
+            Error::invalid_params().data(format!("invalid api-key authentication metadata: {err}"))
+        })?;
+    Ok(Some(api_key.api_key))
+}
+
+fn gateway_auth_from_meta(meta: Option<Meta>) -> Result<GatewayAuthConfig, Error> {
+    let Some(meta) = meta else {
+        return Err(Error::invalid_params().data("gateway authentication requires _meta.gateway"));
+    };
+    let GatewayAuthRequestMeta { gateway } =
+        serde_json::from_value(serde_json::Value::Object(meta)).map_err(|err| {
+            Error::invalid_params().data(format!("invalid gateway authentication metadata: {err}"))
+        })?;
+
+    if gateway.base_url.trim().is_empty() {
+        return Err(Error::invalid_params().data("gateway baseUrl must not be empty"));
+    }
+
+    Ok(GatewayAuthConfig {
+        base_url: gateway.base_url,
+        headers: gateway.headers,
+        provider_name: gateway
+            .provider_name
+            .unwrap_or_else(|| CUSTOM_GATEWAY_PROVIDER_ID.to_string()),
+    })
+}
+
+fn client_supports_gateway_auth(client_capabilities: &ClientCapabilities) -> bool {
+    client_capabilities
+        .auth
+        .meta
+        .as_ref()
+        .and_then(|meta| meta.get(GATEWAY_AUTH_METHOD_ID))
+        .and_then(serde_json::Value::as_bool)
+        .unwrap_or(false)
+}
+
+fn additional_directories_from_meta(meta: &Option<Meta>) -> Vec<PathBuf> {
+    meta_value(meta, "additionalRoots")
+        .or_else(|| meta_value(meta, "additionalDirectories"))
+        .and_then(|value| value.as_array().cloned())
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|value| value.as_str().map(PathBuf::from))
+        .collect()
+}
+
+fn read_additional_directories(
+    cwd: &Path,
+    mut additional_directories: Vec<PathBuf>,
+    meta: Option<Meta>,
+) -> Result<Vec<PathBuf>, Error> {
+    if additional_directories.is_empty() {
+        additional_directories = additional_directories_from_meta(&meta);
+    }
+
+    let mut seen = HashSet::from([cwd.to_path_buf()]);
+    let mut normalized = Vec::new();
+
+    for directory in additional_directories {
+        if !directory.is_absolute() {
+            return Err(Error::invalid_params().data(format!(
+                "additionalDirectories entries must be absolute: {}",
+                directory.display()
+            )));
+        }
+
+        AbsolutePathBuf::try_from(directory.clone()).map_err(|err| {
+            Error::invalid_params().data(format!(
+                "invalid additionalDirectories entry {}: {err}",
+                directory.display()
+            ))
+        })?;
+
+        if seen.insert(directory.clone()) {
+            normalized.push(directory);
+        }
+    }
+
+    Ok(normalized)
+}
+
 fn effective_config_has_feature_setting(
     effective_config: &codex_config::TomlValue,
     active_profile: Option<&str>,
@@ -494,6 +642,7 @@ impl CodexAgent {
             client_capabilities,
             client_info,
             config,
+            gateway_auth: Arc::default(),
             thread_manager,
             state_db,
             sessions: Arc::default(),
@@ -539,6 +688,14 @@ impl CodexAgent {
                 acp::on_receive_request!(),
             )
             .on_receive_request(
+                acp_handler!(agent, DeleteSessionRequest, delete_session),
+                acp::on_receive_request!(),
+            )
+            .on_receive_request(
+                acp_handler_with_cx!(agent, ResumeSessionRequest, resume_session),
+                acp::on_receive_request!(),
+            )
+            .on_receive_request(
                 acp_handler!(agent, CloseSessionRequest, close_session),
                 acp::on_receive_request!(),
             )
@@ -574,6 +731,33 @@ impl CodexAgent {
                 ),
                 acp::on_receive_request!(),
             )
+            .on_receive_request(
+                {
+                    let agent = agent.clone();
+                    async move |request: UntypedMessage,
+                                responder: Responder<serde_json::Value>,
+                                cx: ConnectionTo<Client>| {
+                        let agent = agent.clone();
+                        match request.method.as_str() {
+                            AUTHENTICATION_STATUS_METHOD
+                            | AUTHENTICATION_LOGOUT_METHOD
+                            | LEGACY_SET_SESSION_MODEL_METHOD => {
+                                cx.spawn(async move {
+                                    responder.respond_with_result(
+                                        agent.handle_extension_request(request).await,
+                                    )
+                                })?;
+                                Ok(Handled::Yes)
+                            }
+                            _ => Ok(Handled::No {
+                                message: (request, responder),
+                                retry: false,
+                            }),
+                        }
+                    }
+                },
+                acp::on_receive_request!(),
+            )
             .connect_to(transport)
             .await
     }
@@ -587,7 +771,15 @@ impl CodexAgent {
         thread.ok_or_else(|| Error::resource_not_found(None))
     }
 
+    fn gateway_auth(&self) -> Result<Option<GatewayAuthConfig>, Error> {
+        Ok(lock_agent_state(&self.gateway_auth, "gateway auth")?.clone())
+    }
+
     async fn check_auth(&self) -> Result<(), Error> {
+        if self.gateway_auth()?.is_some() {
+            return Ok(());
+        }
+
         if self.config.model_provider_id == "openai"
             && self.auth_manager.auth().await.is_none()
             // Check if anything changed on disk since the last reload
@@ -603,10 +795,55 @@ impl CodexAgent {
     fn build_session_config(
         &self,
         cwd: &Path,
+        additional_directories: &[PathBuf],
         mcp_servers: Vec<McpServer>,
     ) -> Result<Config, Error> {
         let mut config = self.config.clone();
         config.cwd = cwd.try_into().map_err(Error::into_internal_error)?;
+
+        let mut workspace_roots = Vec::with_capacity(additional_directories.len() + 1);
+        workspace_roots.push(config.cwd.clone());
+        for directory in additional_directories {
+            workspace_roots.push(
+                AbsolutePathBuf::try_from(directory.clone()).map_err(Error::into_internal_error)?,
+            );
+        }
+        config
+            .permissions
+            .set_workspace_roots(workspace_roots.clone());
+        config.workspace_roots = workspace_roots;
+        config.workspace_roots_explicit = true;
+
+        if let Some(gateway) = self.gateway_auth()? {
+            let mut http_headers = gateway.headers;
+            http_headers
+                .entry(CUSTOM_GATEWAY_FEATURE_HEADER.to_string())
+                .or_insert_with(|| "codex".to_string());
+            let provider = ModelProviderInfo {
+                name: gateway.provider_name,
+                base_url: Some(gateway.base_url),
+                env_key: None,
+                env_key_instructions: None,
+                experimental_bearer_token: None,
+                auth: None,
+                aws: None,
+                wire_api: WireApi::Responses,
+                query_params: None,
+                http_headers: Some(http_headers),
+                env_http_headers: None,
+                request_max_retries: None,
+                stream_max_retries: None,
+                stream_idle_timeout_ms: None,
+                websocket_connect_timeout_ms: None,
+                requires_openai_auth: false,
+                supports_websockets: false,
+            };
+            config.model_provider_id = CUSTOM_GATEWAY_PROVIDER_ID.to_string();
+            config.model_provider = provider.clone();
+            config
+                .model_providers
+                .insert(CUSTOM_GATEWAY_PROVIDER_ID.to_string(), provider);
+        }
 
         // Propagate any client-provided MCP servers that codex-rs supports.
         let mut new_mcp_servers = config.mcp_servers.get().clone();
@@ -637,6 +874,7 @@ impl CodexAgent {
         } = request;
         debug!("Received initialize request with protocol version {protocol_version:?}",);
         let protocol_version = ProtocolVersion::V1;
+        let supports_gateway_auth = client_supports_gateway_auth(&client_capabilities);
 
         *lock_agent_state(&self.client_capabilities, "client capabilities")? = client_capabilities;
         *lock_agent_state(&self.client_info, "client info")? = client_info;
@@ -649,16 +887,27 @@ impl CodexAgent {
 
         agent_capabilities.session_capabilities = SessionCapabilities::new()
             .close(SessionCloseCapabilities::new())
-            .list(SessionListCapabilities::new());
+            .list(SessionListCapabilities::new())
+            .delete(SessionDeleteCapabilities::new())
+            .resume(SessionResumeCapabilities::new())
+            .additional_directories(SessionAdditionalDirectoriesCapabilities::new());
 
         let mut auth_methods = vec![
+            CodexAuthMethod::OfficialApiKey.into(),
+            CodexAuthMethod::OfficialChatGpt.into(),
             CodexAuthMethod::ChatGpt.into(),
             CodexAuthMethod::CodexApiKey.into(),
             CodexAuthMethod::OpenAiApiKey.into(),
         ];
+        if supports_gateway_auth {
+            auth_methods.push(CodexAuthMethod::Gateway.into());
+        }
         // Until codex device code auth works, we can't use this in remote ssh projects
         if std::env::var("NO_BROWSER").is_ok() {
-            auth_methods.remove(0);
+            auth_methods.retain(|method: &AuthMethod| method.id().0.as_ref() != "chatgpt");
+            auth_methods.retain(|method: &AuthMethod| {
+                method.id().0.as_ref() != OFFICIAL_CHAT_GPT_AUTH_METHOD_ID
+            });
         }
 
         Ok(InitializeResponse::new(protocol_version)
@@ -671,16 +920,30 @@ impl CodexAgent {
         &self,
         request: AuthenticateRequest,
     ) -> Result<AuthenticateResponse, Error> {
-        let auth_method = CodexAuthMethod::try_from(request.method_id)?;
+        let AuthenticateRequest {
+            method_id, meta, ..
+        } = request;
+        let auth_method = CodexAuthMethod::try_from(method_id)?;
+
+        if auth_method == CodexAuthMethod::Gateway {
+            let gateway = gateway_auth_from_meta(meta)?;
+            *lock_agent_state(&self.gateway_auth, "gateway auth")? = Some(gateway);
+            return Ok(AuthenticateResponse::new());
+        }
 
         // Check before starting login flow if already authenticated with the same method
         if let Some(auth) = self.auth_manager.auth().await {
             match (auth, auth_method) {
                 (
                     CodexAuth::ApiKey(..),
-                    CodexAuthMethod::CodexApiKey | CodexAuthMethod::OpenAiApiKey,
+                    CodexAuthMethod::OfficialApiKey
+                    | CodexAuthMethod::CodexApiKey
+                    | CodexAuthMethod::OpenAiApiKey,
                 )
-                | (CodexAuth::Chatgpt(..), CodexAuthMethod::ChatGpt) => {
+                | (
+                    CodexAuth::Chatgpt(..) | CodexAuth::ChatgptAuthTokens(..),
+                    CodexAuthMethod::OfficialChatGpt | CodexAuthMethod::ChatGpt,
+                ) => {
                     return Ok(AuthenticateResponse::new());
                 }
                 _ => {}
@@ -688,7 +951,7 @@ impl CodexAgent {
         }
 
         match auth_method {
-            CodexAuthMethod::ChatGpt => {
+            CodexAuthMethod::OfficialChatGpt | CodexAuthMethod::ChatGpt => {
                 // Perform browser/device login via codex-rs, then report success/failure to the client.
                 let opts = codex_login::ServerOptions::new(
                     self.config.codex_home.to_path_buf(),
@@ -706,6 +969,26 @@ impl CodexAgent {
                     .block_until_done()
                     .await
                     .map_err(Error::into_internal_error)?;
+            }
+            CodexAuthMethod::OfficialApiKey => {
+                let api_key = api_key_from_auth_meta(meta)?
+                    .or_else(|| {
+                        select_env_api_key_for_ephemeral_auth(
+                            read_codex_api_key_from_env(),
+                            read_openai_api_key_from_env(),
+                        )
+                    })
+                    .ok_or_else(|| {
+                        Error::internal_error().data(format!(
+                            "{CODEX_API_KEY_ENV_VAR} or {OPENAI_API_KEY_ENV_VAR} is not set"
+                        ))
+                    })?;
+                Self::login_with_api_key(
+                    &self.config.codex_home,
+                    &api_key,
+                    self.config.cli_auth_credentials_store_mode,
+                    self.config.auth_keyring_backend_kind(),
+                )?;
             }
             CodexAuthMethod::CodexApiKey => {
                 let api_key = read_codex_api_key_from_env().ok_or_else(|| {
@@ -729,14 +1012,17 @@ impl CodexAgent {
                     self.config.auth_keyring_backend_kind(),
                 )?;
             }
+            CodexAuthMethod::Gateway => unreachable!("gateway auth returns before login flow"),
         }
 
+        *lock_agent_state(&self.gateway_auth, "gateway auth")? = None;
         self.auth_manager.reload().await;
 
         Ok(AuthenticateResponse::new())
     }
 
     async fn logout(&self, _request: LogoutRequest) -> Result<LogoutResponse, Error> {
+        *lock_agent_state(&self.gateway_auth, "gateway auth")? = None;
         self.auth_manager
             .logout()
             .await
@@ -750,6 +1036,7 @@ impl CodexAgent {
         thread_id: ThreadId,
         thread: Arc<dyn CodexThreadImpl>,
         config: Config,
+        additional_directories: Vec<PathBuf>,
         cx: ConnectionTo<Client>,
     ) -> Arc<Thread> {
         Arc::new(Thread::new(ThreadInit {
@@ -761,6 +1048,7 @@ impl CodexAgent {
             client_capabilities: self.client_capabilities.clone(),
             client_info: self.client_info.clone(),
             config,
+            additional_directories,
             cx,
         }))
     }
@@ -809,11 +1097,17 @@ impl CodexAgent {
         self.check_auth().await?;
 
         let NewSessionRequest {
-            cwd, mcp_servers, ..
+            cwd,
+            additional_directories,
+            mcp_servers,
+            meta,
+            ..
         } = request;
         info!("Creating new session with cwd: {}", cwd.display());
 
-        let config = self.build_session_config(&cwd, mcp_servers)?;
+        let additional_directories =
+            read_additional_directories(&cwd, additional_directories, meta)?;
+        let config = self.build_session_config(&cwd, &additional_directories, mcp_servers)?;
         let num_mcp_servers = config.mcp_servers.len();
 
         let NewThread {
@@ -825,7 +1119,14 @@ impl CodexAgent {
             .map_err(|_e| Error::internal_error())?;
 
         let session_id = Self::session_id_from_thread_id(thread_id);
-        let thread = self.create_thread(session_id.clone(), thread_id, thread, config, cx);
+        let thread = self.create_thread(
+            session_id.clone(),
+            thread_id,
+            thread,
+            config,
+            additional_directories,
+            cx,
+        );
         let load = thread.load().await?;
 
         write_sessions(&self.sessions)?.insert(session_id.clone(), thread);
@@ -849,9 +1150,13 @@ impl CodexAgent {
         let LoadSessionRequest {
             session_id,
             cwd,
+            additional_directories,
             mcp_servers,
+            meta,
             ..
         } = request;
+        let additional_directories =
+            read_additional_directories(&cwd, additional_directories, meta)?;
 
         let existing_thread = { read_sessions(&self.sessions)?.get(&session_id).cloned() };
         if let Some(thread) = existing_thread {
@@ -889,7 +1194,7 @@ impl CodexAgent {
 
         let rollout_items = rollout_items_from_history(history);
 
-        let config = self.build_session_config(&cwd, mcp_servers)?;
+        let config = self.build_session_config(&cwd, &additional_directories, mcp_servers)?;
 
         let NewThread {
             thread_id,
@@ -905,7 +1210,14 @@ impl CodexAgent {
         .await
         .map_err(|e| Error::internal_error().data(e.to_string()))?;
 
-        let thread = self.create_thread(session_id.clone(), thread_id, thread, config.clone(), cx);
+        let thread = self.create_thread(
+            session_id.clone(),
+            thread_id,
+            thread,
+            config.clone(),
+            additional_directories,
+            cx,
+        );
 
         thread.replay_history(rollout_items).await?;
 
@@ -914,6 +1226,84 @@ impl CodexAgent {
         write_sessions(&self.sessions)?.insert(session_id, thread);
 
         Ok(LoadSessionResponse::new()
+            .modes(load.modes)
+            .config_options(load.config_options))
+    }
+
+    async fn resume_session(
+        &self,
+        request: ResumeSessionRequest,
+        cx: ConnectionTo<Client>,
+    ) -> Result<ResumeSessionResponse, Error> {
+        info!("Resuming session: {}", request.session_id);
+        self.check_auth().await?;
+
+        let ResumeSessionRequest {
+            session_id,
+            cwd,
+            additional_directories,
+            mcp_servers,
+            meta,
+            ..
+        } = request;
+        let additional_directories =
+            read_additional_directories(&cwd, additional_directories, meta)?;
+
+        let existing_thread = { read_sessions(&self.sessions)?.get(&session_id).cloned() };
+        if let Some(thread) = existing_thread {
+            thread
+                .replace_client(
+                    session_id.clone(),
+                    cx,
+                    self.client_capabilities.clone(),
+                    self.client_info.clone(),
+                )
+                .await?;
+            let load = thread.load().await?;
+
+            return Ok(ResumeSessionResponse::new()
+                .modes(load.modes)
+                .config_options(load.config_options));
+        }
+
+        let rollout_path = find_thread_path_by_id_str(
+            &self.config.codex_home,
+            session_id.0.as_ref(),
+            self.state_db.as_deref(),
+        )
+        .await
+        .map_err(|e| Error::internal_error().data(e.to_string()))?
+        .ok_or_else(|| Error::resource_not_found(None))?;
+
+        let config = self.build_session_config(&cwd, &additional_directories, mcp_servers)?;
+
+        let NewThread {
+            thread_id,
+            thread,
+            session_configured: _,
+        } = Box::pin(self.thread_manager.resume_thread_from_rollout(
+            config.clone(),
+            rollout_path,
+            self.auth_manager.clone(),
+            None,
+            false,
+        ))
+        .await
+        .map_err(|e| Error::internal_error().data(e.to_string()))?;
+
+        let thread = self.create_thread(
+            session_id.clone(),
+            thread_id,
+            thread,
+            config,
+            additional_directories,
+            cx,
+        );
+        let load = thread.load().await?;
+
+        write_sessions(&self.sessions)?.insert(session_id, thread);
+
+        Ok(ResumeSessionResponse::new()
             .modes(load.modes)
             .config_options(load.config_options))
     }
@@ -966,11 +1356,21 @@ impl CodexAgent {
                     .and_then(format_session_title);
                 let updated_at = item.updated_at.or(item.created_at);
 
-                Some(
-                    SessionInfo::new(SessionId::new(thread_id.to_string()), item_cwd)
+                Some({
+                    let session_id = SessionId::new(thread_id.to_string());
+                    let mut info = SessionInfo::new(session_id.clone(), item_cwd)
                         .title(title)
-                        .updated_at(updated_at),
-                )
+                        .updated_at(updated_at);
+                    if let Some(thread) = read_sessions(&self.sessions)
+                        .ok()?
+                        .get(&session_id)
+                        .cloned()
+                    {
+                        info =
+                            info.additional_directories(thread.additional_directories().to_vec());
+                    }
+                    info
+                })
             })
             .collect::<Vec<_>>();
 
@@ -981,6 +1381,54 @@ impl CodexAgent {
             .and_then(|value| value.as_str().map(str::to_owned));
 
         Ok(ListSessionsResponse::new(sessions).next_cursor(next_cursor))
+    }
+
+    async fn delete_session(
+        &self,
+        request: DeleteSessionRequest,
+    ) -> Result<DeleteSessionResponse, Error> {
+        let DeleteSessionRequest { session_id, .. } = request;
+        let thread_id = ThreadId::from_string(&session_id.0).map_err(Error::into_internal_error)?;
+
+        let active_thread = { write_sessions(&self.sessions)?.remove(&session_id) };
+        let mut deleted = active_thread.is_some();
+        if let Some(thread) = active_thread {
+            thread.shutdown().await?;
+            self.thread_manager.remove_thread(&thread_id).await;
+        }
+
+        let rollout_path = find_thread_path_by_id_str(
+            &self.config.codex_home,
+            session_id.0.as_ref(),
+            self.state_db.as_deref(),
+        )
+        .await
+        .map_err(|e| Error::internal_error().data(e.to_string()))?;
+
+        if let Some(rollout_path) = rollout_path {
+            match tokio::fs::remove_file(&rollout_path).await {
+                Ok(()) => deleted = true,
+                Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
+                Err(err) => {
+                    return Err(Error::internal_error()
+                        .data(format!("failed to delete rollout file: {err}")));
+                }
+            }
+        }
+
+        if let Some(state_db) = self.state_db.as_ref() {
+            let rows = state_db
+                .delete_thread(thread_id)
+                .await
+                .map_err(|err| Error::internal_error().data(err.to_string()))?;
+            deleted |= rows > 0;
+        }
+
+        if deleted {
+            Ok(DeleteSessionResponse::new())
+        } else {
+            Err(Error::resource_not_found(None))
+        }
     }
 
     async fn close_session(
@@ -1044,21 +1492,85 @@ impl CodexAgent {
 
         Ok(SetSessionConfigOptionResponse::new(config_options))
     }
+
+    async fn handle_extension_request(
+        &self,
+        request: UntypedMessage,
+    ) -> Result<serde_json::Value, Error> {
+        let (method, params) = request.into_parts();
+        match method.as_str() {
+            AUTHENTICATION_STATUS_METHOD => self.authentication_status().await,
+            AUTHENTICATION_LOGOUT_METHOD => {
+                self.logout(LogoutRequest::new()).await?;
+                Ok(serde_json::json!({}))
+            }
+            LEGACY_SET_SESSION_MODEL_METHOD => {
+                let params: LegacySetSessionModelParams =
+                    serde_json::from_value(params).map_err(|err| {
+                        Error::invalid_params()
+                            .data(format!("invalid session/set_model params: {err}"))
+                    })?;
+                let thread = self.get_thread(&params.session_id)?;
+                thread
+                    .set_config_option(
+                        SessionConfigId::new("model"),
+                        SessionConfigOptionValue::value_id(params.model_id),
+                    )
+                    .await?;
+                Ok(serde_json::json!({}))
+            }
+            _ => Err(Error::method_not_found()),
+        }
+    }
+
+    async fn authentication_status(&self) -> Result<serde_json::Value, Error> {
+        if let Some(gateway) = self.gateway_auth()? {
+            return Ok(serde_json::json!({
+                "type": "gateway",
+                "name": gateway.provider_name,
+            }));
+        }
+
+        let auth = self.auth_manager.auth().await;
+        let status = match auth {
+            Some(CodexAuth::ApiKey(..)) => serde_json::json!({ "type": "api-key" }),
+            Some(auth) => {
+                if let Some(email) = auth.get_account_email() {
+                    serde_json::json!({ "type": "chat-gpt", "email": email })
+                } else if matches!(
+                    auth,
+                    CodexAuth::Chatgpt(..) | CodexAuth::ChatgptAuthTokens(..)
+                ) {
+                    serde_json::json!({ "type": "chat-gpt", "email": "" })
+                } else {
+                    serde_json::json!({ "type": "api-key" })
+                }
+            }
+            None => serde_json::json!({ "type": "unauthenticated" }),
+        };
+        Ok(status)
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum CodexAuthMethod {
+    OfficialApiKey,
+    OfficialChatGpt,
     ChatGpt,
     CodexApiKey,
     OpenAiApiKey,
+    Gateway,
 }
 
 impl From<CodexAuthMethod> for AuthMethodId {
     fn from(method: CodexAuthMethod) -> Self {
         Self::new(match method {
+            CodexAuthMethod::OfficialApiKey => OFFICIAL_API_KEY_AUTH_METHOD_ID,
+            CodexAuthMethod::OfficialChatGpt => OFFICIAL_CHAT_GPT_AUTH_METHOD_ID,
             CodexAuthMethod::ChatGpt => "chatgpt",
             CodexAuthMethod::CodexApiKey => "codex-api-key",
             CodexAuthMethod::OpenAiApiKey => "openai-api-key",
+            CodexAuthMethod::Gateway => GATEWAY_AUTH_METHOD_ID,
         })
     }
 }
@@ -1066,6 +1578,21 @@ impl From<CodexAuthMethod> for AuthMethodId {
 impl From<CodexAuthMethod> for AuthMethod {
     fn from(method: CodexAuthMethod) -> Self {
         match method {
+            CodexAuthMethod::OfficialApiKey => {
+                let mut meta = Meta::new();
+                meta.insert(
+                    OFFICIAL_API_KEY_AUTH_METHOD_ID.to_string(),
+                    serde_json::json!({ "provider": "openai" }),
+                );
+                Self::Agent(
+                    AuthMethodAgent::new(method, "API Key")
+                        .description("Use an API key to authenticate")
+                        .meta(meta),
+                )
+            }
+            CodexAuthMethod::OfficialChatGpt => Self::Agent(
+                AuthMethodAgent::new(method, "ChatGPT").description("Use ChatGPT to authenticate"),
+            ),
             CodexAuthMethod::ChatGpt => Self::Agent(
                 AuthMethodAgent::new(method, "Login with ChatGPT").description(
                     "Use your ChatGPT login with Codex CLI (requires a paid ChatGPT subscription)",
@@ -1091,6 +1618,21 @@ impl From<CodexAuthMethod> for AuthMethod {
                     "Requires setting the `{OPENAI_API_KEY_ENV_VAR}` environment variable."
                 )),
             ),
+            CodexAuthMethod::Gateway => {
+                let mut meta = Meta::new();
+                meta.insert(
+                    GATEWAY_AUTH_METHOD_ID.to_string(),
+                    serde_json::json!({
+                        "protocol": "openai",
+                        "restartRequired": false,
+                    }),
+                );
+                Self::Agent(
+                    AuthMethodAgent::new(method, "Custom model gateway")
+                        .description("Use a custom gateway to authenticate and access models")
+                        .meta(meta),
+                )
+            }
         }
     }
 }
@@ -1100,9 +1642,12 @@ impl TryFrom<AuthMethodId> for CodexAuthMethod {
 
     fn try_from(value: AuthMethodId) -> Result<Self, Self::Error> {
         match value.0.as_ref() {
+            OFFICIAL_API_KEY_AUTH_METHOD_ID => Ok(Self::OfficialApiKey),
+            OFFICIAL_CHAT_GPT_AUTH_METHOD_ID => Ok(Self::OfficialChatGpt),
             "chatgpt" => Ok(Self::ChatGpt),
             "codex-api-key" => Ok(Self::CodexApiKey),
             "openai-api-key" => Ok(Self::OpenAiApiKey),
+            GATEWAY_AUTH_METHOD_ID => Ok(Self::Gateway),
             _ => Err(Error::invalid_params().data("unsupported authentication method")),
         }
     }

@@ -1,4 +1,7 @@
-use std::sync::{Arc, LazyLock, Mutex};
+use std::{
+    path::PathBuf,
+    sync::{Arc, LazyLock, Mutex},
+};
 
 use agent_client_protocol::{
     Client, ConnectionTo, Error,
@@ -119,6 +122,8 @@ enum ThreadMessage {
 pub struct Thread {
     /// Direct handle to the underlying Codex thread for out-of-band shutdown.
     thread: Arc<dyn CodexThreadImpl>,
+    /// Additional workspace roots associated with this ACP session.
+    additional_directories: Vec<PathBuf>,
     /// A sender for interacting with the thread.
     message_tx: mpsc::UnboundedSender<ThreadMessage>,
     /// Keep the actor task alive for the lifetime of the thread wrapper.
@@ -134,6 +139,7 @@ pub(crate) struct ThreadInit {
     pub(crate) client_capabilities: Arc<Mutex<ClientCapabilities>>,
     pub(crate) client_info: Arc<Mutex<Option<Implementation>>>,
     pub(crate) config: Config,
+    pub(crate) additional_directories: Vec<PathBuf>,
     pub(crate) cx: ConnectionTo<Client>,
 }
 
@@ -148,6 +154,7 @@ impl Thread {
             client_capabilities,
             client_info,
             config,
+            additional_directories,
             cx,
         } = init;
         let (message_tx, message_rx) = mpsc::unbounded_channel();
@@ -168,9 +175,14 @@ impl Thread {
 
         Self {
             thread,
+            additional_directories,
             message_tx,
             _handle: handle,
         }
+    }
+
+    pub(crate) fn additional_directories(&self) -> &[PathBuf] {
+        &self.additional_directories
     }
 
     pub async fn load(&self) -> Result<LoadSessionResponse, Error> {

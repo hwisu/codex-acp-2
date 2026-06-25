@@ -1,4 +1,5 @@
 use super::actor::ThreadActor;
+use codex_config::{McpServerConfig, McpServerTransportConfig};
 use codex_git_utils::current_branch_name;
 use codex_protocol::config_types::ServiceTier;
 use itertools::Itertools;
@@ -64,6 +65,44 @@ impl<A: Auth> ThreadActor<A> {
             .join("\n");
 
         format!("Collaboration mode: {collaboration_mode}\n\nKnown subagents:\n{agents}")
+    }
+
+    pub(super) fn mcp_summary(&self) -> String {
+        let servers = self.config.mcp_servers.get();
+        if servers.is_empty() {
+            return "No MCP servers are configured for this session.".to_string();
+        }
+
+        let lines = servers
+            .iter()
+            .sorted_by(|(left, _), (right, _)| left.cmp(right))
+            .map(|(name, server)| format!("- {name}: {}", format_mcp_server(server)))
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        format!("Configured MCP servers:\n{lines}")
+    }
+
+    pub(super) fn skills_summary(&self) -> String {
+        let bundled = if self.config.bundled_skills_enabled() {
+            "enabled"
+        } else {
+            "disabled"
+        };
+        let instructions = if self.config.include_skill_instructions {
+            "enabled"
+        } else {
+            "disabled"
+        };
+        let orchestrator = if self.config.orchestrator_skills_enabled {
+            "enabled"
+        } else {
+            "disabled"
+        };
+
+        format!(
+            "Skills:\n- Bundled skills: {bundled}\n- Orchestrator skills: {orchestrator}\n- Skill instructions: {instructions}"
+        )
     }
 
     pub(super) async fn current_status_summary(&self) -> String {
@@ -201,6 +240,34 @@ impl<A: Auth> ThreadActor<A> {
     pub(super) fn current_usage_summary(&self) -> String {
         self.current_usage_summary_lines().join("\n")
     }
+}
+
+fn format_mcp_server(server: &McpServerConfig) -> String {
+    let transport = match &server.transport {
+        McpServerTransportConfig::Stdio { command, args, .. } => {
+            if args.is_empty() {
+                format!("stdio `{command}`")
+            } else {
+                format!("stdio `{command} {}`", args.join(" "))
+            }
+        }
+        McpServerTransportConfig::StreamableHttp { url, .. } => {
+            format!("http {url}")
+        }
+    };
+    let status = if server.enabled {
+        "enabled"
+    } else {
+        "disabled"
+    };
+    let required = if server.required { ", required" } else { "" };
+    let reason = server
+        .disabled_reason
+        .as_ref()
+        .map(|reason| format!(", reason: {reason}"))
+        .unwrap_or_default();
+
+    format!("{transport} ({status}{required}{reason})")
 }
 
 fn format_service_tier(service_tier: Option<&str>) -> &'static str {
