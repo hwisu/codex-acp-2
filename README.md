@@ -1,6 +1,6 @@
 # codex-acp-2
 
-Codex ACP version: `0.142.1` · ACP contract: `100%` advertised (`13/13` handlers), `81%` enabled SDK surface (`13/16`; `session/fork` is not advertised; `mcp/connect` is disabled)
+Codex ACP version: `0.142.1` · ACP contract: `100%` advertised (`14/14` handlers), `88%` enabled SDK surface (`14/16`; `session/fork` enabled; `mcp/connect` disabled)
 
 [Korean](README.ko.md)
 
@@ -35,7 +35,8 @@ This fork tracks upstream Codex releases under three rules:
 
 ## Features
 
-- Codex-backed ACP sessions: create, load, resume, list, delete, close, replay
+- Codex-backed ACP sessions: create, load, resume, fork, list, delete, close,
+  replay
 - Text, resource, link, and image prompt blocks
 - Streaming messages, reasoning, tool calls, and background status
 - Shell command approval/output and apply-patch edit rendering
@@ -48,10 +49,12 @@ This fork tracks upstream Codex releases under three rules:
 - Slash commands: `/review`, `/status`, `/usage`, `/permissions`, `/agent`,
   `/mcp`, `/skills`, `/ps`, `/undo`, `/plan`, `/goal`, `/fast`, `/logout`
 
-ACP `session/fork` and MCP-over-ACP `mcp/connect` proxy methods are intentionally
-not exposed by this adapter yet. Client-provided MCP server configuration is
-accepted through ACP session creation and translated into Codex MCP config; MCP
-tool output continues to be rendered as ACP tool calls.
+ACP `session/fork` snapshots the source rollout and starts an independent Codex
+thread with a fresh session ID. MCP-over-ACP `mcp/connect` proxying is not
+exposed yet because Codex currently accepts stdio/HTTP MCP transports, while ACP
+MCP requires a live proxy bridge. Client-provided stdio/HTTP MCP server
+configuration is accepted through ACP session creation and translated into Codex
+MCP config; MCP tool output continues to be rendered as ACP tool calls.
 
 Terminal output uses an ACP `_meta` compatibility extension. Zed picks it up
 automatically; other clients can set

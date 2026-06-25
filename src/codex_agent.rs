@@ -4,14 +4,15 @@ use acp::schema::{
         AgentAuthCapabilities, AgentCapabilities, AuthEnvVar, AuthMethod, AuthMethodAgent,
         AuthMethodEnvVar, AuthMethodId, AuthenticateRequest, AuthenticateResponse,
         CancelNotification, ClientCapabilities, CloseSessionRequest, CloseSessionResponse,
-        DeleteSessionRequest, DeleteSessionResponse, Implementation, InitializeRequest,
-        InitializeResponse, ListSessionsRequest, ListSessionsResponse, LoadSessionRequest,
-        LoadSessionResponse, LogoutCapabilities, LogoutRequest, LogoutResponse, McpCapabilities,
-        McpServer, McpServerHttp, McpServerStdio, Meta, NewSessionRequest, NewSessionResponse,
-        PromptCapabilities, PromptRequest, PromptResponse, ResumeSessionRequest,
-        ResumeSessionResponse, SessionAdditionalDirectoriesCapabilities, SessionCapabilities,
-        SessionCloseCapabilities, SessionConfigId, SessionConfigOptionValue,
-        SessionDeleteCapabilities, SessionId, SessionInfo, SessionListCapabilities,
+        DeleteSessionRequest, DeleteSessionResponse, ForkSessionRequest, ForkSessionResponse,
+        Implementation, InitializeRequest, InitializeResponse, ListSessionsRequest,
+        ListSessionsResponse, LoadSessionRequest, LoadSessionResponse, LogoutCapabilities,
+        LogoutRequest, LogoutResponse, McpCapabilities, McpServer, McpServerHttp, McpServerStdio,
+        Meta, NewSessionRequest, NewSessionResponse, PromptCapabilities, PromptRequest,
+        PromptResponse, ResumeSessionRequest, ResumeSessionResponse,
+        SessionAdditionalDirectoriesCapabilities, SessionCapabilities, SessionCloseCapabilities,
+        SessionConfigId, SessionConfigOptionValue, SessionDeleteCapabilities,
+        SessionForkCapabilities, SessionId, SessionInfo, SessionListCapabilities,
         SessionResumeCapabilities, SetSessionConfigOptionRequest, SetSessionConfigOptionResponse,
         SetSessionModeRequest, SetSessionModeResponse,
     },
@@ -49,8 +50,8 @@ use codex_config::{
     AbsolutePathBuf, AppToolApproval, McpServerConfig, McpServerEnvVar, McpServerTransportConfig,
 };
 use codex_core::{
-    NewThread, RolloutRecorder, SortDirection, StateDbHandle, ThreadManager, ThreadSortKey,
-    config::Config, find_thread_path_by_id_str, init_state_db, parse_cursor,
+    ForkSnapshot, NewThread, RolloutRecorder, SortDirection, StateDbHandle, ThreadManager,
+    ThreadSortKey, config::Config, find_thread_path_by_id_str, init_state_db, parse_cursor,
     resolve_installation_id, thread_store_from_config,
 };
 use codex_exec_server::{EnvironmentManager, ExecServerRuntimePaths};
@@ -284,6 +285,11 @@ fn convert_mcp_server(
         McpServer::Sse(..) => return Ok(None),
         McpServer::Http(server) => convert_http_mcp_server(server)?,
         McpServer::Stdio(server) => convert_stdio_mcp_server(session_cwd, server)?,
+        McpServer::Acp(..) => {
+            return Err(Error::invalid_params().data(
+                "MCP-over-ACP mcp/connect is not supported by Codex's MCP transport layer yet",
+            ));
+        }
         _ => return Ok(None),
     };
 
@@ -696,6 +702,10 @@ impl CodexAgent {
                 acp::on_receive_request!(),
             )
             .on_receive_request(
+                acp_handler_with_cx!(agent, ForkSessionRequest, fork_session),
+                acp::on_receive_request!(),
+            )
+            .on_receive_request(
                 acp_handler!(agent, CloseSessionRequest, close_session),
                 acp::on_receive_request!(),
             )
@@ -890,6 +900,7 @@ impl CodexAgent {
             .list(SessionListCapabilities::new())
             .delete(SessionDeleteCapabilities::new())
             .resume(SessionResumeCapabilities::new())
+            .fork(SessionForkCapabilities::new())
             .additional_directories(SessionAdditionalDirectoriesCapabilities::new());
 
         let mut auth_methods = vec![
@@ -1308,6 +1319,78 @@ impl CodexAgent {
             .config_options(load.config_options))
     }
 
+    async fn fork_session(
+        &self,
+        request: ForkSessionRequest,
+        cx: ConnectionTo<Client>,
+    ) -> Result<ForkSessionResponse, Error> {
+        info!("Forking session: {}", request.session_id);
+        self.check_auth().await?;
+
+        let ForkSessionRequest {
+            session_id,
+            cwd,
+            additional_directories,
+            mcp_servers,
+            meta,
+            ..
+        } = request;
+        let source_thread_id =
+            ThreadId::from_string(&session_id.0).map_err(Error::into_internal_error)?;
+
+        if let Ok(source_thread) = self.thread_manager.get_thread(source_thread_id).await {
+            source_thread.ensure_rollout_materialized().await;
+            source_thread
+                .flush_rollout()
+                .await
+                .map_err(|err| Error::internal_error().data(err.to_string()))?;
+        }
+
+        let rollout_path = find_thread_path_by_id_str(
+            &self.config.codex_home,
+            session_id.0.as_ref(),
+            self.state_db.as_deref(),
+        )
+        .await
+        .map_err(|e| Error::internal_error().data(e.to_string()))?
+        .ok_or_else(|| Error::resource_not_found(None))?;
+
+        let additional_directories =
+            read_additional_directories(&cwd, additional_directories, meta)?;
+        let config = self.build_session_config(&cwd, &additional_directories, mcp_servers)?;
+
+        let NewThread {
+            thread_id,
+            thread,
+            session_configured: _,
+        } = Box::pin(self.thread_manager.fork_thread(
+            ForkSnapshot::Interrupted,
+            config.clone(),
+            rollout_path,
+            None,
+            None,
+        ))
+        .await
+        .map_err(|e| Error::internal_error().data(e.to_string()))?;
+
+        let forked_session_id = Self::session_id_from_thread_id(thread_id);
+        let thread = self.create_thread(
+            forked_session_id.clone(),
+            thread_id,
+            thread,
+            config,
+            additional_directories,
+            cx,
+        );
+        let load = thread.load().await?;
+
+        write_sessions(&self.sessions)?.insert(forked_session_id.clone(), thread);
+
+        Ok(ForkSessionResponse::new(forked_session_id)
+            .modes(load.modes)
+            .config_options(load.config_options))
+    }
+
     async fn list_sessions(
         &self,
         request: ListSessionsRequest,
@@ -1687,7 +1770,7 @@ fn format_session_title(message: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use acp::schema::v1::{EnvVariable, HttpHeader, McpServerSse};
+    use acp::schema::v1::{EnvVariable, HttpHeader, McpServerAcp, McpServerSse};
     use serde_json::json;
 
     fn poison_mutex<T>(mutex: &Mutex<T>) {
@@ -2131,6 +2214,15 @@ mod tests {
         let converted = convert_mcp_server(Path::new("/workspace"), server)
             .expect("unsupported SSE server should be ignored without error");
         assert!(converted.is_none());
+    }
+
+    #[test]
+    fn convert_mcp_server_rejects_acp_transport_until_bridge_exists() {
+        let server = McpServer::Acp(McpServerAcp::new("Project Tools", "project-tools"));
+
+        let err = convert_mcp_server(Path::new("/workspace"), server)
+            .expect_err("ACP transport should fail until a proxy bridge is available");
+        assert!(format!("{err:?}").contains("MCP-over-ACP"));
     }
 
     #[test]

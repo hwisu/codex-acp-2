@@ -18,6 +18,7 @@ const ADVERTISED_ACP_AGENT_HANDLER_PATTERNS: &[&str] = &[
     "ListSessionsRequest, list_sessions",
     "DeleteSessionRequest, delete_session",
     "ResumeSessionRequest, resume_session",
+    "ForkSessionRequest, fork_session",
     "CloseSessionRequest, close_session",
     "PromptRequest, prompt",
     "notification: CancelNotification",
@@ -25,8 +26,7 @@ const ADVERTISED_ACP_AGENT_HANDLER_PATTERNS: &[&str] = &[
     "SetSessionConfigOptionRequest, set_session_config_option",
 ];
 
-const ENABLED_SDK_AGENT_METHODS_NOT_ADVERTISED: &[&str] =
-    &["ForkSessionRequest", "McpConnectRequest"];
+const ENABLED_SDK_AGENT_METHODS_NOT_ADVERTISED: &[&str] = &["McpConnectRequest"];
 
 #[test]
 fn acp_agent_registers_every_advertised_handler() {
@@ -67,7 +67,7 @@ fn acp_agent_does_not_advertise_unimplemented_enabled_sdk_methods() {
             && source.contains(".close(SessionCloseCapabilities::new())")
             && source.contains(".list(SessionListCapabilities::new())")
             && source.contains(".delete(SessionDeleteCapabilities::new())")
-            && !source.contains(".fork(")
+            && source.contains(".fork(SessionForkCapabilities::new())")
             && source.contains(".resume(SessionResumeCapabilities::new())")
             && source.contains(
                 ".additional_directories(SessionAdditionalDirectoriesCapabilities::new())"
@@ -86,8 +86,8 @@ fn readmes_expose_current_acp_support_summary_at_the_top() {
 
         assert!(
             top.contains(version)
-                && top.contains("13/13")
-                && top.contains("13/16")
+                && top.contains("14/14")
+                && top.contains("14/16")
                 && top.contains("session/fork")
                 && top.contains("mcp/connect"),
             "{readme} must expose the current ACP support summary near the top"
