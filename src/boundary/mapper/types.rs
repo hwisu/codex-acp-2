@@ -101,8 +101,8 @@ impl ActorAutoApproval {
 
 pub(crate) enum ActorStateUpdate {
     LatestUsage {
-        info: Option<TokenUsageInfo>,
-        rate_limits: Option<RateLimitSnapshot>,
+        info: Option<Box<TokenUsageInfo>>,
+        rate_limits: Option<Box<RateLimitSnapshot>>,
     },
     CollaborationMode(ModeKind),
     RememberCollabAgent(ActorCollabAgentUpdate),

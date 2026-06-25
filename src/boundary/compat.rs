@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use agent_client_protocol::schema::{Implementation, Meta};
+use agent_client_protocol::schema::v1::{Implementation, Meta};
 
 use super::constants::meta;
 

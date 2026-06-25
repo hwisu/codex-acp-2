@@ -60,6 +60,9 @@ fn classifies_rollout_items_without_fallback() {
     let item = RolloutItem::Compacted(codex_protocol::protocol::CompactedItem {
         message: "summary".to_string(),
         replacement_history: None,
+        window_number: None,
+        first_window_id: None,
+        previous_window_id: None,
         window_id: None,
     });
 

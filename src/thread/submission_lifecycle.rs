@@ -1,4 +1,4 @@
-use agent_client_protocol::{Error, schema::StopReason};
+use agent_client_protocol::{Error, schema::v1::StopReason};
 use codex_protocol::{
     models::MessagePhase,
     protocol::{

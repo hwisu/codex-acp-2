@@ -1,6 +1,6 @@
 use std::sync::LazyLock;
 
-use agent_client_protocol::schema::SessionModeId;
+use agent_client_protocol::schema::v1::SessionModeId;
 use codex_core::config::Config;
 use codex_protocol::models::PermissionProfile;
 use codex_utils_approval_presets::ApprovalPreset;

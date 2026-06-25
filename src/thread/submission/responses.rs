@@ -1,4 +1,4 @@
-use agent_client_protocol::{Error, schema::StopReason};
+use agent_client_protocol::{Error, schema::v1::StopReason};
 use tokio::sync::oneshot;
 
 type PromptResultSender = oneshot::Sender<Result<StopReason, Error>>;

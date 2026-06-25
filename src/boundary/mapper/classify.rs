@@ -92,6 +92,7 @@ pub(crate) fn classify_event_msg(
         | EventMsg::ModelReroute(..)
         | EventMsg::ModelVerification(..)
         | EventMsg::TurnModerationMetadata(..)
+        | EventMsg::SafetyBuffering(..)
         | EventMsg::StreamError(..)
         | EventMsg::DeprecationNotice(..) => Ignore(DiagnosticOnly),
         EventMsg::EnteredReviewMode(..) => Ignore(StateOnly),

@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 
-use agent_client_protocol::schema::{ToolCallLocation, ToolKind};
+use agent_client_protocol::schema::v1::{ToolCallLocation, ToolKind};
 use codex_protocol::parse_command::ParsedCommand;
 use codex_shell_command::parse_command::parse_command;
 

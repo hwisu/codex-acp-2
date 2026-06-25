@@ -167,7 +167,7 @@ async fn test_replay_exec_command_function_call_preserves_shell_metadata() -> an
             })
             .to_string(),
             call_id: "exec-replay".to_string(),
-            metadata: None,
+            internal_chat_message_metadata_passthrough: None,
         })],
         response_tx: replay_response_tx,
     })?;
@@ -201,7 +201,7 @@ async fn test_replay_invalid_exec_command_arguments_remain_generic() -> anyhow::
             })
             .to_string(),
             call_id: "invalid-exec-replay".to_string(),
-            metadata: None,
+            internal_chat_message_metadata_passthrough: None,
         })],
         response_tx: replay_response_tx,
     })?;

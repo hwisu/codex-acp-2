@@ -1,7 +1,7 @@
 use std::{collections::HashMap, path::PathBuf};
 
 use agent_client_protocol::Error;
-use agent_client_protocol::schema::{
+use agent_client_protocol::schema::v1::{
     Meta, PermissionOption, PermissionOptionKind, ToolCallContent, ToolCallId, ToolCallLocation,
     ToolCallStatus, ToolCallUpdate, ToolCallUpdateFields, ToolKind,
 };
@@ -205,9 +205,11 @@ pub(crate) fn exec_approval_interaction(
         additional_permissions,
         available_decisions: _,
         proposed_network_policy_amendments: _,
+        environment_id: _,
         started_at_ms: _,
     } = event;
 
+    let cwd_path = cwd.to_path_buf();
     let tool_call_id = ToolCallId::new(call_id.clone());
     let ParseCommandToolCall {
         title,
@@ -215,7 +217,7 @@ pub(crate) fn exec_approval_interaction(
         file_extension,
         locations,
         kind,
-    } = parse_command_tool_call(parsed_cmd, &cwd);
+    } = parse_command_tool_call(parsed_cmd, &cwd_path);
 
     let permission_options = build_exec_permission_options(
         &available_decisions,
@@ -239,7 +241,7 @@ pub(crate) fn exec_approval_interaction(
             kind,
             terminal_output,
             file_extension,
-            cwd: cwd.to_path_buf(),
+            cwd: cwd_path,
         },
         permission_request: PermissionRequestSeed::new(
             ToolCallUpdate::new(

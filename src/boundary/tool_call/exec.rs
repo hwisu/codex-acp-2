@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 
-use agent_client_protocol::schema::{
+use agent_client_protocol::schema::v1::{
     Meta, Terminal, ToolCall, ToolCallContent, ToolCallId, ToolCallStatus, ToolCallUpdate,
     ToolCallUpdateFields, ToolKind,
 };
@@ -260,6 +260,7 @@ pub(crate) fn exec_command_begin_plan(
         process_id: _,
         ..
     } = event;
+    let cwd_path = cwd.to_path_buf();
     let tool_call_id = ToolCallId::new(call_id.clone());
     let ParseCommandToolCall {
         title,
@@ -267,7 +268,7 @@ pub(crate) fn exec_command_begin_plan(
         locations,
         terminal_output,
         kind,
-    } = parse_command_tool_call(parsed_cmd, &cwd);
+    } = parse_command_tool_call(parsed_cmd, &cwd_path);
 
     let active_command = ActiveCommand {
         tool_call_id: tool_call_id.clone(),
@@ -275,12 +276,12 @@ pub(crate) fn exec_command_begin_plan(
         kind,
         output: String::new(),
         file_extension,
-        cwd: cwd.to_path_buf(),
+        cwd: cwd_path.clone(),
         terminal_output,
     };
     let supports_terminal_output = supports_terminal_output(&active_command);
     let (content, meta) =
-        active_command.render_initial_content(&call_id, &cwd, supports_terminal_output);
+        active_command.render_initial_content(&call_id, &cwd_path, supports_terminal_output);
     let tool_call = ToolCall::new(tool_call_id, title)
         .kind(kind)
         .status(ToolCallStatus::InProgress)

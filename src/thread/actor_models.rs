@@ -1,4 +1,4 @@
-use agent_client_protocol::{Error, schema::SessionConfigValueId};
+use agent_client_protocol::{Error, schema::v1::SessionConfigValueId};
 use codex_protocol::openai_models::{ModelPreset, ReasoningEffort};
 
 use crate::boundary::{

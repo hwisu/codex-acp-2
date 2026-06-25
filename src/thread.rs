@@ -2,7 +2,7 @@ use std::sync::{Arc, LazyLock, Mutex};
 
 use agent_client_protocol::{
     Client, ConnectionTo, Error,
-    schema::{
+    schema::v1::{
         ClientCapabilities, Implementation, LoadSessionResponse, PromptRequest,
         RequestPermissionResponse, SessionConfigId, SessionConfigOption, SessionConfigOptionValue,
         SessionId, SessionModeId, StopReason,

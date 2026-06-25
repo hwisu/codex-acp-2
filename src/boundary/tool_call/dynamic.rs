@@ -1,4 +1,4 @@
-use agent_client_protocol::schema::{
+use agent_client_protocol::schema::v1::{
     Content, ContentBlock, ResourceLink, ToolCall, ToolCallContent, ToolCallStatus, ToolCallUpdate,
     ToolCallUpdateFields,
 };
@@ -80,7 +80,7 @@ fn dynamic_tool_call_content(
 
 #[cfg(test)]
 mod tests {
-    use agent_client_protocol::schema::ToolCallStatus;
+    use agent_client_protocol::schema::v1::ToolCallStatus;
     use codex_protocol::protocol::DynamicToolCallResponseEvent;
 
     use super::dynamic_tool_call_end;

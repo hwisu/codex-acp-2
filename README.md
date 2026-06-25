@@ -1,6 +1,6 @@
 # codex-acp-2
 
-Codex ACP version: `0.141.0` · ACP contract: `100%` advertised (`11/11` handlers), `80%` enabled SDK surface (`11/16`; `session/delete`, `session/fork`, and `session/resume` are not advertised; `mcp/connect` is disabled)
+Codex ACP version: `0.142.1` · ACP contract: `100%` advertised (`11/11` handlers), `80%` enabled SDK surface (`11/16`; `session/delete`, `session/fork`, and `session/resume` are not advertised; `mcp/connect` is disabled)
 
 [Korean](README.ko.md)
 
@@ -23,15 +23,15 @@ This fork tracks upstream Codex releases under three rules:
 
 ## Pinned Versions
 
-- Codex Rust crates: [`openai/codex`](https://github.com/openai/codex/tree/rust-v0.141.0/codex-rs)
-  at tag `rust-v0.141.0` (`3fb81667d30d9d24297216ea61fbfcc4351b2aa9` in `Cargo.lock`)
+- Codex Rust crates: [`openai/codex`](https://github.com/openai/codex/tree/rust-v0.142.1/codex-rs)
+  at tag `rust-v0.142.1` (`95da8fd25193fd58d1c5984eee20d1ef7bd50e77` in `Cargo.lock`)
 - ACP Rust SDK: [`agent-client-protocol`](https://crates.io/crates/agent-client-protocol)
   from [`agentclientprotocol/rust-sdk`](https://github.com/agentclientprotocol/rust-sdk) -
-  `agent-client-protocol = 0.14.0` with `unstable`
-  (`agent-client-protocol-schema = 0.13.6` via lockfile)
+  `agent-client-protocol = 1.0.0` with `unstable`
+  (`agent-client-protocol-schema = 1.1.0` via lockfile)
 - Official Codex ACP adapter reference:
   [`agentclientprotocol/codex-acp`](https://github.com/agentclientprotocol/codex-acp),
-  npm `@agentclientprotocol/codex-acp = 0.0.46`
+  npm `@agentclientprotocol/codex-acp = 1.0.0`
 
 ## Features
 

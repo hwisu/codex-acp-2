@@ -1,4 +1,4 @@
-use agent_client_protocol::schema::{ToolCall, ToolCallUpdate, ToolCallUpdateFields, ToolKind};
+use agent_client_protocol::schema::v1::{ToolCall, ToolCallUpdate, ToolCallUpdateFields, ToolKind};
 use codex_protocol::protocol::{GuardianAssessmentEvent, GuardianAssessmentStatus};
 
 use crate::{

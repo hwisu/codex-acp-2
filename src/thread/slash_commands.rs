@@ -1,6 +1,8 @@
 use agent_client_protocol::{
     Error,
-    schema::{AvailableCommand, AvailableCommandInput, SessionModeId, UnstructuredCommandInput},
+    schema::v1::{
+        AvailableCommand, AvailableCommandInput, SessionModeId, UnstructuredCommandInput,
+    },
 };
 use codex_features::Feature;
 use codex_protocol::{

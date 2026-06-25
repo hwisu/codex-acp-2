@@ -1,4 +1,4 @@
-use agent_client_protocol::schema::{
+use agent_client_protocol::schema::v1::{
     PermissionOption, RequestPermissionRequest, SessionId, SessionUpdate, ToolCall, ToolCallUpdate,
 };
 use codex_protocol::protocol::Op;
@@ -40,7 +40,7 @@ impl PermissionRequestSeed {
     }
 
     #[cfg(test)]
-    pub(crate) fn tool_call_id(&self) -> &agent_client_protocol::schema::ToolCallId {
+    pub(crate) fn tool_call_id(&self) -> &agent_client_protocol::schema::v1::ToolCallId {
         &self.tool_call.tool_call_id
     }
 

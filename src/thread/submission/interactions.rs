@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use agent_client_protocol::{Error, schema::RequestPermissionResponse};
+use agent_client_protocol::{Error, schema::v1::RequestPermissionResponse};
 use tracing::warn;
 
 use crate::{

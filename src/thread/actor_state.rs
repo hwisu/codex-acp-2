@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use agent_client_protocol::schema::SessionConfigOption;
+use agent_client_protocol::schema::v1::SessionConfigOption;
 use codex_protocol::{
     ThreadId,
     protocol::{AgentStatus, CollabAgentStatusEntry, RateLimitSnapshot, TokenUsageInfo},
@@ -172,7 +172,7 @@ impl ActorState {
     fn apply_event_update(&mut self, update: ActorStateUpdate) {
         match update {
             ActorStateUpdate::LatestUsage { info, rate_limits } => {
-                self.set_latest_usage(info, rate_limits);
+                self.set_latest_usage(info.map(|info| *info), rate_limits.map(|rate| *rate));
             }
             ActorStateUpdate::CollaborationMode(kind) => {
                 self.set_collaboration_mode_kind(kind);

@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use agent_client_protocol::schema::{
+use agent_client_protocol::schema::v1::{
     BlobResourceContents, ContentBlock, EmbeddedResource, EmbeddedResourceResource, ResourceLink,
     TextResourceContents,
 };
@@ -214,7 +214,7 @@ pub(super) fn extract_slash_command(content: &[UserInput]) -> Option<(&str, &str
 #[cfg(test)]
 mod tests {
     use super::*;
-    use agent_client_protocol::schema::{
+    use agent_client_protocol::schema::v1::{
         BlobResourceContents, EmbeddedResourceResource, TextResourceContents,
     };
 

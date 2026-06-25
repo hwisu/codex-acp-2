@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 
-use agent_client_protocol::schema::{Diff, ToolCallContent, ToolCallLocation};
+use agent_client_protocol::schema::v1::{Diff, ToolCallContent, ToolCallLocation};
 use codex_protocol::protocol::FileChange;
 use diffy::patch_set::{FileOperation, ParseOptions, PatchKind, PatchSet};
 use itertools::Itertools;
@@ -434,7 +434,7 @@ Diff in {}:1:
         assert!(matches!(
             content.first(),
             Some(ToolCallContent::Content(content))
-                if matches!(&content.content, agent_client_protocol::schema::ContentBlock::Text(text) if text.text == unified_diff)
+                if matches!(&content.content, agent_client_protocol::schema::v1::ContentBlock::Text(text) if text.text == unified_diff)
         ));
     }
 

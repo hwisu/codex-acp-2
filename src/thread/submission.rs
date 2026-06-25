@@ -5,7 +5,7 @@ use std::{
 
 use agent_client_protocol::{
     Error,
-    schema::{RequestPermissionResponse, StopReason},
+    schema::v1::{RequestPermissionResponse, StopReason},
 };
 use codex_protocol::protocol::EventMsg;
 use tokio::sync::{mpsc, oneshot};

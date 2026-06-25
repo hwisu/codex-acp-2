@@ -1,4 +1,4 @@
-use agent_client_protocol::schema::{
+use agent_client_protocol::schema::v1::{
     AvailableCommand, AvailableCommandsUpdate, ConfigOptionUpdate, ContentChunk, Meta, Plan,
     PlanEntry, PlanEntryPriority, PlanEntryStatus, SessionConfigOption, SessionUpdate, UsageUpdate,
 };

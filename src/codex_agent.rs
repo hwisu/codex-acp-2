@@ -1,14 +1,17 @@
 use acp::schema::{
-    AgentAuthCapabilities, AgentCapabilities, AuthEnvVar, AuthMethod, AuthMethodAgent,
-    AuthMethodEnvVar, AuthMethodId, AuthenticateRequest, AuthenticateResponse, CancelNotification,
-    ClientCapabilities, CloseSessionRequest, CloseSessionResponse, Implementation,
-    InitializeRequest, InitializeResponse, ListSessionsRequest, ListSessionsResponse,
-    LoadSessionRequest, LoadSessionResponse, LogoutCapabilities, LogoutRequest, LogoutResponse,
-    McpCapabilities, McpServer, McpServerHttp, McpServerStdio, Meta, NewSessionRequest,
-    NewSessionResponse, PromptCapabilities, PromptRequest, PromptResponse, ProtocolVersion,
-    SessionCapabilities, SessionCloseCapabilities, SessionId, SessionInfo, SessionListCapabilities,
-    SetSessionConfigOptionRequest, SetSessionConfigOptionResponse, SetSessionModeRequest,
-    SetSessionModeResponse,
+    ProtocolVersion,
+    v1::{
+        AgentAuthCapabilities, AgentCapabilities, AuthEnvVar, AuthMethod, AuthMethodAgent,
+        AuthMethodEnvVar, AuthMethodId, AuthenticateRequest, AuthenticateResponse,
+        CancelNotification, ClientCapabilities, CloseSessionRequest, CloseSessionResponse,
+        Implementation, InitializeRequest, InitializeResponse, ListSessionsRequest,
+        ListSessionsResponse, LoadSessionRequest, LoadSessionResponse, LogoutCapabilities,
+        LogoutRequest, LogoutResponse, McpCapabilities, McpServer, McpServerHttp, McpServerStdio,
+        Meta, NewSessionRequest, NewSessionResponse, PromptCapabilities, PromptRequest,
+        PromptResponse, SessionCapabilities, SessionCloseCapabilities, SessionId, SessionInfo,
+        SessionListCapabilities, SetSessionConfigOptionRequest, SetSessionConfigOptionResponse,
+        SetSessionModeRequest, SetSessionModeResponse,
+    },
 };
 use acp::{Agent, Client, ConnectTo, ConnectionTo, Error};
 use agent_client_protocol as acp;
@@ -431,8 +434,10 @@ impl CodexAgent {
             config.codex_home.to_path_buf(),
             false,
             config.cli_auth_credentials_store_mode,
+            config.forced_chatgpt_workspace_id.clone(),
             Some(config.chatgpt_base_url.clone()),
             auth_keyring_backend_kind,
+            config.auth_route_config(),
         )
         .await;
 
@@ -480,6 +485,7 @@ impl CodexAgent {
                 Arc::clone(&thread_store),
                 state_db.clone(),
                 installation_id.clone(),
+                None,
                 None,
             )
         });
@@ -687,9 +693,10 @@ impl CodexAgent {
                 let opts = codex_login::ServerOptions::new(
                     self.config.codex_home.to_path_buf(),
                     codex_login::auth::CLIENT_ID.to_string(),
-                    None,
+                    self.config.forced_chatgpt_workspace_id.clone(),
                     self.config.cli_auth_credentials_store_mode,
                     self.config.auth_keyring_backend_kind(),
+                    self.config.auth_route_config(),
                 );
 
                 let server =
@@ -893,6 +900,7 @@ impl CodexAgent {
             rollout_path,
             self.auth_manager.clone(),
             None,
+            false,
         ))
         .await
         .map_err(|e| Error::internal_error().data(e.to_string()))?;
@@ -1134,7 +1142,7 @@ fn format_session_title(message: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use acp::schema::{EnvVariable, HttpHeader, McpServerSse};
+    use acp::schema::v1::{EnvVariable, HttpHeader, McpServerSse};
     use serde_json::json;
 
     fn poison_mutex<T>(mutex: &Mutex<T>) {
@@ -1185,7 +1193,9 @@ mod tests {
             false,
             codex_login::AuthCredentialsStoreMode::File,
             None,
+            None,
             keyring_backend_kind,
+            None,
         )
         .await;
         let auth = auth_manager
@@ -1227,7 +1237,9 @@ mod tests {
             false,
             codex_login::AuthCredentialsStoreMode::File,
             None,
+            None,
             keyring_backend_kind,
+            None,
         )
         .await;
         let auth = auth_manager.auth().await.expect("stored auth should load");

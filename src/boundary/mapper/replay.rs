@@ -97,6 +97,7 @@ fn route_replay_event_action(event: &EventMsg) -> ReplayEventAction<'_> {
         | EventMsg::ModelReroute(..)
         | EventMsg::ModelVerification(..)
         | EventMsg::TurnModerationMetadata(..)
+        | EventMsg::SafetyBuffering(..)
         | EventMsg::StreamError(..)
         | EventMsg::DeprecationNotice(..) => ReplayEventAction::Ignore {
             event,

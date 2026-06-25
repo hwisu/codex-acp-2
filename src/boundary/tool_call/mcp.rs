@@ -1,4 +1,4 @@
-use agent_client_protocol::schema::{
+use agent_client_protocol::schema::v1::{
     Content, ContentBlock, ToolCall, ToolCallContent, ToolCallStatus, ToolCallUpdate,
     ToolCallUpdateFields,
 };
@@ -66,7 +66,7 @@ fn mcp_tool_call_content(result: Result<CallToolResult, String>) -> Option<Vec<T
 
 #[cfg(test)]
 mod tests {
-    use agent_client_protocol::schema::ToolCallStatus;
+    use agent_client_protocol::schema::v1::ToolCallStatus;
 
     use super::mcp_tool_call_end;
 

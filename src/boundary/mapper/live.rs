@@ -44,6 +44,10 @@ pub(crate) fn route_live_event(event: EventMsg) -> LiveEventRoute {
             event: EventMsg::ModelVerification(event),
             reason: DiagnosticOnly,
         },
+        EventMsg::SafetyBuffering(event) => Ignore {
+            event: EventMsg::SafetyBuffering(event),
+            reason: DiagnosticOnly,
+        },
         EventMsg::TurnModerationMetadata(event) => Ignore {
             event: EventMsg::TurnModerationMetadata(event),
             reason: DiagnosticOnly,
@@ -98,6 +102,8 @@ pub(crate) fn route_live_event(event: EventMsg) -> LiveEventRoute {
                 call_id,
                 invocation,
                 mcp_app_resource_uri: _,
+                connector_id: _,
+                link_id: _,
                 plugin_id: _,
             } = event;
             effect_route(tool_call::mcp_tool_call_begin_effect(call_id, &invocation))
@@ -107,6 +113,8 @@ pub(crate) fn route_live_event(event: EventMsg) -> LiveEventRoute {
                 call_id,
                 invocation: _,
                 mcp_app_resource_uri: _,
+                connector_id: _,
+                link_id: _,
                 plugin_id: _,
                 duration: _,
                 result,

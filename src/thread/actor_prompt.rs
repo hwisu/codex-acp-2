@@ -1,7 +1,7 @@
 use super::actor::ThreadActor;
 use agent_client_protocol::{
     Error,
-    schema::{ContentBlock, PromptRequest, StopReason},
+    schema::v1::{ContentBlock, PromptRequest, StopReason},
 };
 use codex_protocol::{request_user_input::RequestUserInputEvent, user_input::UserInput};
 use itertools::Itertools;

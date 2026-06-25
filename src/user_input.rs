@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use agent_client_protocol::schema::Error;
+use agent_client_protocol::schema::v1::Error;
 use codex_protocol::request_user_input::{
     RequestUserInputAnswer, RequestUserInputEvent, RequestUserInputQuestion,
     RequestUserInputResponse,

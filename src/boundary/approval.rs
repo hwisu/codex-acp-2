@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use agent_client_protocol::schema::{RequestPermissionOutcome, SelectedPermissionOutcome};
+use agent_client_protocol::schema::v1::{RequestPermissionOutcome, SelectedPermissionOutcome};
 use codex_protocol::{
     approvals::ElicitationAction,
     mcp::RequestId,
@@ -165,7 +165,7 @@ fn mcp_elicitation_resolution(
 mod tests {
     use super::*;
 
-    use agent_client_protocol::schema::RequestPermissionOutcome;
+    use agent_client_protocol::schema::v1::RequestPermissionOutcome;
     use codex_protocol::request_permissions::{PermissionGrantScope, RequestPermissionProfile};
 
     fn selected(option_id: impl Into<String>) -> RequestPermissionOutcome {

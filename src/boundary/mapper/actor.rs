@@ -52,6 +52,7 @@ fn route_actor_event(msg: &EventMsg) -> ActorEventAction {
         | EventMsg::ModelReroute(..)
         | EventMsg::ModelVerification(..)
         | EventMsg::TurnModerationMetadata(..)
+        | EventMsg::SafetyBuffering(..)
         | EventMsg::ContextCompacted(..)
         | EventMsg::ThreadRolledBack(..)
         | EventMsg::ThreadSettingsApplied(..)
@@ -130,8 +131,8 @@ fn actor_route_to_submission(
 pub(crate) fn actor_state_updates(event: &EventMsg) -> Vec<ActorStateUpdate> {
     match event {
         EventMsg::TokenCount(event) => vec![ActorStateUpdate::LatestUsage {
-            info: event.info.clone(),
-            rate_limits: event.rate_limits.clone(),
+            info: event.info.clone().map(Box::new),
+            rate_limits: event.rate_limits.clone().map(Box::new),
         }],
         EventMsg::TurnStarted(event) => vec![ActorStateUpdate::CollaborationMode(
             event.collaboration_mode_kind,
@@ -206,6 +207,7 @@ pub(crate) fn actor_state_updates(event: &EventMsg) -> Vec<ActorStateUpdate> {
         | EventMsg::ModelReroute(..)
         | EventMsg::ModelVerification(..)
         | EventMsg::TurnModerationMetadata(..)
+        | EventMsg::SafetyBuffering(..)
         | EventMsg::ContextCompacted(..)
         | EventMsg::ThreadRolledBack(..)
         | EventMsg::ThreadSettingsApplied(..)

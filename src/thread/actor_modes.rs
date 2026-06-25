@@ -1,6 +1,6 @@
 use agent_client_protocol::{
     Error,
-    schema::{SessionMode, SessionModeId, SessionModeState},
+    schema::v1::{SessionMode, SessionModeId, SessionModeState},
 };
 use codex_core::config::{PermissionProfileSnapshot, set_project_trust_level};
 use codex_protocol::{

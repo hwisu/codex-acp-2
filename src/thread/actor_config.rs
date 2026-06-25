@@ -1,6 +1,6 @@
 use agent_client_protocol::{
     Error,
-    schema::{
+    schema::v1::{
         LoadSessionResponse, SessionConfigId, SessionConfigOption, SessionConfigOptionCategory,
         SessionConfigOptionValue, SessionConfigSelectOption, SessionModeId,
     },

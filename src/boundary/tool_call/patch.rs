@@ -1,4 +1,4 @@
-use agent_client_protocol::schema::{
+use agent_client_protocol::schema::v1::{
     ToolCall, ToolCallContent, ToolCallStatus, ToolCallUpdate, ToolCallUpdateFields, ToolKind,
 };
 use codex_protocol::protocol::{
@@ -132,7 +132,7 @@ fn patch_apply_tool_call_status(status: PatchApplyStatus, success: bool) -> Tool
 mod tests {
     use std::collections::HashMap;
 
-    use agent_client_protocol::schema::ToolCallStatus;
+    use agent_client_protocol::schema::v1::ToolCallStatus;
     use codex_protocol::protocol::{PatchApplyEndEvent, PatchApplyStatus, PatchApplyUpdatedEvent};
 
     use super::{patch_apply_end_tool_call_update, patch_apply_updated_tool_call_update};

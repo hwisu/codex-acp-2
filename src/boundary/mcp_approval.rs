@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use agent_client_protocol::schema::{
+use agent_client_protocol::schema::v1::{
     Content, ContentBlock, PermissionOption, PermissionOptionKind, TextContent, ToolCallContent,
     ToolCallId, ToolCallStatus, ToolCallUpdate, ToolCallUpdateFields,
 };
@@ -149,7 +149,7 @@ fn mcp_elicitation_request_key(server_name: &str, request_id: &RequestId) -> Str
 
 fn mcp_elicitation_request_kind(request: &ElicitationRequest) -> &'static str {
     match request {
-        ElicitationRequest::Form { .. } => "form",
+        ElicitationRequest::Form { .. } | ElicitationRequest::OpenAiForm { .. } => "form",
         ElicitationRequest::Url { .. } => "url",
     }
 }
