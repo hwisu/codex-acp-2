@@ -263,19 +263,20 @@ impl Thread {
         let (response_tx, response_rx) = oneshot::channel();
         let message = ThreadMessage::Shutdown { response_tx };
 
-        if self.message_tx.send(message).is_err() {
-            self.thread.submit_ok(op::shutdown()).await?;
+        let shutdown_result = if self.message_tx.send(message).is_err() {
+            self.thread.submit_ok(op::shutdown()).await
         } else {
-            response_rx
-                .await
-                .map_err(|_| thread_actor_not_running_error())??;
-        }
+            match response_rx.await {
+                Ok(result) => result,
+                Err(_) => Err(thread_actor_not_running_error()),
+            }
+        };
         for bridge in &self.mcp_bridges {
             bridge.shutdown().await;
         }
         // Let the actor drain the resulting turn-aborted/shutdown events so any in-flight
         // prompt callers observe a clean cancellation instead of a dropped response channel.
-        Ok(())
+        shutdown_result
     }
 
     async fn request_actor<T>(

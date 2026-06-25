@@ -347,6 +347,7 @@ fn convert_http_mcp_server(server: McpServerHttp) -> Result<ConvertedMcpServer, 
 fn convert_acp_mcp_server(
     server: McpServerAcp,
     bridge_url: impl Into<String>,
+    http_headers: HashMap<String, String>,
 ) -> Result<ConvertedMcpServer, Error> {
     let McpServerAcp { name, meta, .. } = server;
     let meta = parse_codex_mcp_server_meta(meta)?;
@@ -366,7 +367,7 @@ fn convert_acp_mcp_server(
         transport: McpServerTransportConfig::StreamableHttp {
             url: bridge_url.into(),
             bearer_token_env_var: None,
-            http_headers: None,
+            http_headers: Some(http_headers),
             env_http_headers: None,
         },
         oauth_resource: None,
@@ -913,21 +914,49 @@ impl CodexAgent {
         for mcp_server in mcp_servers {
             match mcp_server {
                 McpServer::Acp(server) => {
-                    let bridge =
-                        AcpMcpBridge::start(cx.clone(), server.id.clone(), server.meta.clone())
-                            .await?;
-                    let converted = convert_acp_mcp_server(server, bridge.url())?;
-                    let (name, mcp_server_config) = build_mcp_server_config(converted)?;
+                    let bridge = match AcpMcpBridge::start(
+                        cx.clone(),
+                        server.id.clone(),
+                        server.meta.clone(),
+                    )
+                    .await
+                    {
+                        Ok(bridge) => bridge,
+                        Err(err) => {
+                            shutdown_mcp_bridges(&mcp_bridges).await;
+                            return Err(err);
+                        }
+                    };
+                    let converted =
+                        match convert_acp_mcp_server(server, bridge.url(), bridge.http_headers()) {
+                            Ok(converted) => converted,
+                            Err(err) => {
+                                bridge.shutdown().await;
+                                shutdown_mcp_bridges(&mcp_bridges).await;
+                                return Err(err);
+                            }
+                        };
+                    let (name, mcp_server_config) = match build_mcp_server_config(converted) {
+                        Ok(config) => config,
+                        Err(err) => {
+                            bridge.shutdown().await;
+                            shutdown_mcp_bridges(&mcp_bridges).await;
+                            return Err(err);
+                        }
+                    };
                     new_mcp_servers.insert(name, mcp_server_config);
                     mcp_bridges.push(bridge);
                 }
-                server => {
-                    if let Some((name, mcp_server_config)) =
-                        convert_mcp_server(config.cwd.as_path(), server)?
-                    {
+                server => match convert_mcp_server(config.cwd.as_path(), server) {
+                    Ok(Some((name, mcp_server_config))) => {
                         new_mcp_servers.insert(name, mcp_server_config);
                     }
-                }
+                    Ok(None) => {}
+                    Err(err) => {
+                        shutdown_mcp_bridges(&mcp_bridges).await;
+                        return Err(err);
+                    }
+                },
             }
         }
 
@@ -2390,8 +2419,15 @@ mod tests {
         .expect("valid meta");
         let server = McpServerAcp::new("Project Tools", "project-tools").meta(meta);
 
-        let converted = convert_acp_mcp_server(server, "http://127.0.0.1:65535/mcp")
-            .expect("ACP transport conversion should succeed");
+        let converted = convert_acp_mcp_server(
+            server,
+            "http://127.0.0.1:65535/mcp",
+            HashMap::from([(
+                "x-codex-acp-mcp-bridge-token".to_string(),
+                "secret".to_string(),
+            )]),
+        )
+        .expect("ACP transport conversion should succeed");
         let (name, config) = build_mcp_server_config(converted)
             .expect("ACP server should be converted to a bridge-backed MCP config");
 
@@ -2403,8 +2439,17 @@ mod tests {
         );
         assert_eq!(config.enabled_tools, Some(vec!["lookup".to_string()]));
         match config.transport {
-            McpServerTransportConfig::StreamableHttp { url, .. } => {
+            McpServerTransportConfig::StreamableHttp {
+                url, http_headers, ..
+            } => {
                 assert_eq!(url, "http://127.0.0.1:65535/mcp");
+                assert_eq!(
+                    http_headers
+                        .as_ref()
+                        .and_then(|headers| headers.get("x-codex-acp-mcp-bridge-token"))
+                        .map(String::as_str),
+                    Some("secret")
+                );
             }
             other => panic!("unexpected transport: {other:?}"),
         }
@@ -2420,7 +2465,7 @@ mod tests {
         .expect("valid meta");
         let server = McpServerAcp::new("Project Tools", "project-tools").meta(meta);
 
-        let err = convert_acp_mcp_server(server, "http://127.0.0.1:65535/mcp")
+        let err = convert_acp_mcp_server(server, "http://127.0.0.1:65535/mcp", HashMap::default())
             .expect_err("HTTP-only meta should fail for ACP transport");
         assert!(format!("{err:?}").contains("not supported for ACP transport"));
     }

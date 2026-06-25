@@ -1,4 +1,5 @@
 use std::{
+    collections::HashMap,
     net::{Ipv4Addr, SocketAddr},
     sync::{Arc, Mutex as StdMutex},
     time::Duration,
@@ -14,8 +15,10 @@ use acp::{
 use agent_client_protocol as acp;
 use axum::{
     Json, Router,
-    extract::State,
-    http::StatusCode,
+    body::Body,
+    extract::{DefaultBodyLimit, State},
+    http::{HeaderMap, Request, StatusCode},
+    middleware::{self, Next},
     response::{IntoResponse, Response},
     routing::post,
 };
@@ -27,6 +30,9 @@ use tokio::{
 };
 use tracing::{debug, warn};
 
+const BRIDGE_AUTH_HEADER: &str = "x-codex-acp-mcp-bridge-token";
+const MAX_MCP_POST_BODY_BYTES: usize = 1024 * 1024;
+
 #[derive(Clone)]
 pub(crate) struct AcpMcpBridge {
     url: String,
@@ -36,6 +42,7 @@ pub(crate) struct AcpMcpBridge {
 struct AcpMcpBridgeInner {
     acp_id: McpServerAcpId,
     meta: Option<Meta>,
+    token: String,
     state: Mutex<BridgeConnectionState>,
     shutdown_tx: StdMutex<Option<oneshot::Sender<()>>>,
     task: StdMutex<Option<JoinHandle<()>>>,
@@ -62,6 +69,7 @@ impl AcpMcpBridge {
             Error::internal_error().data(format!("failed to inspect ACP MCP bridge address: {err}"))
         })?;
         let url = format!("http://{}/mcp", format_socket_addr(local_addr));
+        let token = uuid::Uuid::new_v4().to_string();
         let (shutdown_tx, shutdown_rx) = oneshot::channel();
 
         let bridge = Self {
@@ -69,6 +77,7 @@ impl AcpMcpBridge {
             inner: Arc::new(AcpMcpBridgeInner {
                 acp_id,
                 meta,
+                token,
                 state: Mutex::new(BridgeConnectionState { cx, connection_id }),
                 shutdown_tx: StdMutex::new(Some(shutdown_tx)),
                 task: StdMutex::new(None),
@@ -77,6 +86,11 @@ impl AcpMcpBridge {
 
         let app = Router::new()
             .route("/mcp", post(handle_mcp_post).delete(handle_mcp_delete))
+            .route_layer(middleware::from_fn_with_state(
+                bridge.inner.token.clone(),
+                require_bridge_token,
+            ))
+            .layer(DefaultBodyLimit::max(MAX_MCP_POST_BODY_BYTES))
             .with_state(bridge.clone());
         let task = tokio::spawn(async move {
             let server = axum::serve(listener, app).with_graceful_shutdown(async {
@@ -96,6 +110,10 @@ impl AcpMcpBridge {
 
     pub(crate) fn url(&self) -> &str {
         &self.url
+    }
+
+    pub(crate) fn http_headers(&self) -> HashMap<String, String> {
+        HashMap::from([(BRIDGE_AUTH_HEADER.to_string(), self.inner.token.clone())])
     }
 
     pub(crate) async fn replace_connection(&self, cx: ConnectionTo<Client>) -> Result<(), Error> {
@@ -336,6 +354,26 @@ async fn handle_mcp_delete() -> StatusCode {
     StatusCode::ACCEPTED
 }
 
+async fn require_bridge_token(
+    State(expected_token): State<String>,
+    headers: HeaderMap,
+    request: Request<Body>,
+    next: Next,
+) -> Result<Response, StatusCode> {
+    if bridge_token_authorized(&headers, &expected_token) {
+        Ok(next.run(request).await)
+    } else {
+        Err(StatusCode::UNAUTHORIZED)
+    }
+}
+
+fn bridge_token_authorized(headers: &HeaderMap, expected_token: &str) -> bool {
+    headers
+        .get(BRIDGE_AUTH_HEADER)
+        .and_then(|value| value.to_str().ok())
+        .is_some_and(|token| token == expected_token)
+}
+
 fn mcp_params(params: Option<&Value>) -> Result<Option<Map<String, Value>>, &'static str> {
     match params {
         None | Some(Value::Null) => Ok(None),
@@ -378,5 +416,24 @@ fn format_socket_addr(addr: SocketAddr) -> String {
     match addr {
         SocketAddr::V4(addr) => addr.to_string(),
         SocketAddr::V6(addr) => format!("[{}]:{}", addr.ip(), addr.port()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use axum::http::{HeaderMap, HeaderValue};
+
+    use super::{BRIDGE_AUTH_HEADER, bridge_token_authorized};
+
+    #[test]
+    fn bridge_token_authorization_requires_exact_header() {
+        let mut headers = HeaderMap::new();
+        assert!(!bridge_token_authorized(&headers, "expected"));
+
+        headers.insert(BRIDGE_AUTH_HEADER, HeaderValue::from_static("wrong"));
+        assert!(!bridge_token_authorized(&headers, "expected"));
+
+        headers.insert(BRIDGE_AUTH_HEADER, HeaderValue::from_static("expected"));
+        assert!(bridge_token_authorized(&headers, "expected"));
     }
 }
