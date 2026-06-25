@@ -1,6 +1,6 @@
 # codex-acp-2
 
-Codex ACP version: `0.142.1` · ACP contract: `100%` advertised (`14/14` handlers), `88%` enabled SDK surface (`14/16`; `session/fork` enabled; `mcp/connect` disabled)
+Codex ACP version: `0.142.1` · ACP contract: `100%` advertised (`14/14` handlers), `94%` enabled SDK surface (`15/16`; `session/fork` and `mcp/connect` enabled)
 
 [Korean](README.ko.md)
 
@@ -40,7 +40,7 @@ This fork tracks upstream Codex releases under three rules:
 - Text, resource, link, and image prompt blocks
 - Streaming messages, reasoning, tool calls, and background status
 - Shell command approval/output and apply-patch edit rendering
-- Client-provided MCP servers (HTTP, stdio; SSE ignored) and
+- Client-provided MCP servers (HTTP, stdio, MCP-over-ACP; SSE ignored) and
   `additionalDirectories` workspace roots
 - Authentication: ChatGPT, API key, custom model gateway, status/logout
   compatibility extensions
@@ -50,11 +50,12 @@ This fork tracks upstream Codex releases under three rules:
   `/mcp`, `/skills`, `/ps`, `/undo`, `/plan`, `/goal`, `/fast`, `/logout`
 
 ACP `session/fork` snapshots the source rollout and starts an independent Codex
-thread with a fresh session ID. MCP-over-ACP `mcp/connect` proxying is not
-exposed yet because Codex currently accepts stdio/HTTP MCP transports, while ACP
-MCP requires a live proxy bridge. Client-provided stdio/HTTP MCP server
-configuration is accepted through ACP session creation and translated into Codex
-MCP config; MCP tool output continues to be rendered as ACP tool calls.
+thread with a fresh session ID. MCP-over-ACP `mcp/connect` is exposed through a
+session-scoped loopback Streamable HTTP bridge: ACP `type: "acp"` MCP servers
+are connected over `mcp/connect`, proxied through `mcp/message`, and disconnected
+on session shutdown. Client-provided MCP server configuration is accepted
+through ACP session creation and translated into Codex MCP config; MCP tool
+output continues to be rendered as ACP tool calls.
 
 Terminal output uses an ACP `_meta` compatibility extension. Zed picks it up
 automatically; other clients can set

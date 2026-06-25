@@ -26,7 +26,7 @@ const ADVERTISED_ACP_AGENT_HANDLER_PATTERNS: &[&str] = &[
     "SetSessionConfigOptionRequest, set_session_config_option",
 ];
 
-const ENABLED_SDK_AGENT_METHODS_NOT_ADVERTISED: &[&str] = &["McpConnectRequest"];
+const ENABLED_SDK_AGENT_METHODS_NOT_ADVERTISED: &[&str] = &[];
 
 #[test]
 fn acp_agent_registers_every_advertised_handler() {
@@ -87,7 +87,7 @@ fn readmes_expose_current_acp_support_summary_at_the_top() {
         assert!(
             top.contains(version)
                 && top.contains("14/14")
-                && top.contains("14/16")
+                && top.contains("15/16")
                 && top.contains("session/fork")
                 && top.contains("mcp/connect"),
             "{readme} must expose the current ACP support summary near the top"

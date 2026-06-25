@@ -52,7 +52,7 @@ pub use deps::CodexThreadImpl;
 use deps::ModelsManagerImpl;
 pub(crate) use deps::goal_service;
 
-use crate::boundary::op;
+use crate::{acp_mcp_bridge::AcpMcpBridge, boundary::op};
 
 static DISABLE_TERMINAL_OUTPUT: LazyLock<bool> = LazyLock::new(|| {
     std::env::var("CODEX_ACP_DISABLE_TERMINAL_OUTPUT")
@@ -124,6 +124,8 @@ pub struct Thread {
     thread: Arc<dyn CodexThreadImpl>,
     /// Additional workspace roots associated with this ACP session.
     additional_directories: Vec<PathBuf>,
+    /// ACP-over-MCP bridge endpoints that must live as long as this session.
+    mcp_bridges: Vec<AcpMcpBridge>,
     /// A sender for interacting with the thread.
     message_tx: mpsc::UnboundedSender<ThreadMessage>,
     /// Keep the actor task alive for the lifetime of the thread wrapper.
@@ -140,6 +142,7 @@ pub(crate) struct ThreadInit {
     pub(crate) client_info: Arc<Mutex<Option<Implementation>>>,
     pub(crate) config: Config,
     pub(crate) additional_directories: Vec<PathBuf>,
+    pub(crate) mcp_bridges: Vec<AcpMcpBridge>,
     pub(crate) cx: ConnectionTo<Client>,
 }
 
@@ -155,6 +158,7 @@ impl Thread {
             client_info,
             config,
             additional_directories,
+            mcp_bridges,
             cx,
         } = init;
         let (message_tx, message_rx) = mpsc::unbounded_channel();
@@ -176,6 +180,7 @@ impl Thread {
         Self {
             thread,
             additional_directories,
+            mcp_bridges,
             message_tx,
             _handle: handle,
         }
@@ -243,6 +248,9 @@ impl Thread {
         client_capabilities: Arc<Mutex<ClientCapabilities>>,
         client_info: Arc<Mutex<Option<Implementation>>>,
     ) -> Result<(), Error> {
+        for bridge in &self.mcp_bridges {
+            bridge.replace_connection(cx.clone()).await?;
+        }
         let client = SessionClient::new(session_id, cx, client_capabilities, client_info);
         self.request_actor(|response_tx| ThreadMessage::ReplaceClient {
             client,
@@ -261,6 +269,9 @@ impl Thread {
             response_rx
                 .await
                 .map_err(|_| thread_actor_not_running_error())??;
+        }
+        for bridge in &self.mcp_bridges {
+            bridge.shutdown().await;
         }
         // Let the actor drain the resulting turn-aborted/shutdown events so any in-flight
         // prompt callers observe a clean cancellation instead of a dropped response channel.

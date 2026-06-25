@@ -1784,6 +1784,7 @@ dependencies = [
  "agent-client-protocol",
  "allocative",
  "anyhow",
+ "axum",
  "base64 0.22.1",
  "clap",
  "codex-analytics",

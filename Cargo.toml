@@ -21,6 +21,7 @@ path = "src/lib.rs"
 agent-client-protocol = { version = "=1.0.0", features = ["unstable"] }
 allocative = "=0.3.6"
 anyhow = "1"
+axum = { version = "0.8.9", default-features = false, features = ["tokio", "http1", "json"] }
 base64 = "0.22.1"
 clap = "4"
 codex-analytics = { git = "https://github.com/openai/codex", tag = "rust-v0.142.1" }
@@ -52,7 +53,7 @@ serde = { version = "1", features = ["derive"] }
 # that behavior here because it affects MCP keychain account hashing.
 serde_json = { version = "1", features = ["preserve_order"] }
 shlex = "2"
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "io-std", "io-util"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "io-std", "io-util", "net", "sync"] }
 tokio-util = { version = "0.7", features = ["compat"] }
 tracing = { version = "0.1", features = ["log"] }
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }

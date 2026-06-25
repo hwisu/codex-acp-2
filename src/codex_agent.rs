@@ -7,9 +7,9 @@ use acp::schema::{
         DeleteSessionRequest, DeleteSessionResponse, ForkSessionRequest, ForkSessionResponse,
         Implementation, InitializeRequest, InitializeResponse, ListSessionsRequest,
         ListSessionsResponse, LoadSessionRequest, LoadSessionResponse, LogoutCapabilities,
-        LogoutRequest, LogoutResponse, McpCapabilities, McpServer, McpServerHttp, McpServerStdio,
-        Meta, NewSessionRequest, NewSessionResponse, PromptCapabilities, PromptRequest,
-        PromptResponse, ResumeSessionRequest, ResumeSessionResponse,
+        LogoutRequest, LogoutResponse, McpCapabilities, McpServer, McpServerAcp, McpServerHttp,
+        McpServerStdio, Meta, NewSessionRequest, NewSessionResponse, PromptCapabilities,
+        PromptRequest, PromptResponse, ResumeSessionRequest, ResumeSessionResponse,
         SessionAdditionalDirectoriesCapabilities, SessionCapabilities, SessionCloseCapabilities,
         SessionConfigId, SessionConfigOptionValue, SessionDeleteCapabilities,
         SessionForkCapabilities, SessionId, SessionInfo, SessionListCapabilities,
@@ -20,7 +20,7 @@ use acp::schema::{
 use acp::{Agent, Client, ConnectTo, ConnectionTo, Error, Handled, Responder, UntypedMessage};
 use agent_client_protocol as acp;
 
-use crate::boundary::constants::meta as boundary_meta;
+use crate::{acp_mcp_bridge::AcpMcpBridge, boundary::constants::meta as boundary_meta};
 
 macro_rules! acp_handler {
     ($agent:expr, $req:ty, $method:ident) => {{
@@ -177,6 +177,15 @@ fn write_sessions(
         .map_err(|_| Error::internal_error().data("sessions state is poisoned"))
 }
 
+fn insert_session_thread(
+    sessions: &RwLock<HashMap<SessionId, Arc<Thread>>>,
+    session_id: SessionId,
+    thread: &Arc<Thread>,
+) -> Result<(), Error> {
+    write_sessions(sessions)?.insert(session_id, thread.clone());
+    Ok(())
+}
+
 fn rollout_items_from_history(history: InitialHistory) -> Vec<RolloutItem> {
     match history {
         InitialHistory::Resumed(resumed) => resumed.history,
@@ -270,11 +279,17 @@ fn resolve_mcp_server_cwd(session_cwd: &Path, override_cwd: Option<PathBuf>) -> 
         .or_else(|| Some(session_cwd.to_path_buf()))
 }
 
+#[derive(Debug)]
 struct ConvertedMcpServer {
     name: String,
     transport: McpServerTransportConfig,
     oauth_resource: Option<String>,
     meta: CodexMcpServerMeta,
+}
+
+struct SessionConfigBuild {
+    config: Config,
+    mcp_bridges: Vec<AcpMcpBridge>,
 }
 
 fn convert_mcp_server(
@@ -286,9 +301,9 @@ fn convert_mcp_server(
         McpServer::Http(server) => convert_http_mcp_server(server)?,
         McpServer::Stdio(server) => convert_stdio_mcp_server(session_cwd, server)?,
         McpServer::Acp(..) => {
-            return Err(Error::invalid_params().data(
-                "MCP-over-ACP mcp/connect is not supported by Codex's MCP transport layer yet",
-            ));
+            return Err(
+                Error::invalid_params().data("ACP MCP transport requires an active bridge URL")
+            );
         }
         _ => return Ok(None),
     };
@@ -325,6 +340,36 @@ fn convert_http_mcp_server(server: McpServerHttp) -> Result<ConvertedMcpServer, 
         name,
         transport,
         oauth_resource: meta.oauth_resource.clone(),
+        meta,
+    })
+}
+
+fn convert_acp_mcp_server(
+    server: McpServerAcp,
+    bridge_url: impl Into<String>,
+) -> Result<ConvertedMcpServer, Error> {
+    let McpServerAcp { name, meta, .. } = server;
+    let meta = parse_codex_mcp_server_meta(meta)?;
+    if meta.bearer_token_env_var.is_some()
+        || meta.env_http_headers.is_some()
+        || meta.oauth_resource.is_some()
+        || meta.cwd.is_some()
+        || meta.env_vars.is_some()
+    {
+        return Err(Error::invalid_params().data(
+            "MCP server _meta bearer/env/cwd/oauth fields are not supported for ACP transport",
+        ));
+    }
+
+    Ok(ConvertedMcpServer {
+        name,
+        transport: McpServerTransportConfig::StreamableHttp {
+            url: bridge_url.into(),
+            bearer_token_env_var: None,
+            http_headers: None,
+            env_http_headers: None,
+        },
+        oauth_resource: None,
         meta,
     })
 }
@@ -406,6 +451,12 @@ fn build_mcp_server_config(
         tools: HashMap::default(),
     };
     Ok((normalize_mcp_server_name(&name), config))
+}
+
+async fn shutdown_mcp_bridges(bridges: &[AcpMcpBridge]) {
+    for bridge in bridges {
+        bridge.shutdown().await;
+    }
 }
 
 fn select_env_api_key_for_ephemeral_auth(
@@ -802,12 +853,13 @@ impl CodexAgent {
 
     /// Build a session config from base config, working directory, and MCP servers.
     /// This is shared between `new_session` and `load_session`.
-    fn build_session_config(
+    async fn build_session_config(
         &self,
         cwd: &Path,
         additional_directories: &[PathBuf],
         mcp_servers: Vec<McpServer>,
-    ) -> Result<Config, Error> {
+        cx: &ConnectionTo<Client>,
+    ) -> Result<SessionConfigBuild, Error> {
         let mut config = self.config.clone();
         config.cwd = cwd.try_into().map_err(Error::into_internal_error)?;
 
@@ -857,20 +909,41 @@ impl CodexAgent {
 
         // Propagate any client-provided MCP servers that codex-rs supports.
         let mut new_mcp_servers = config.mcp_servers.get().clone();
+        let mut mcp_bridges = Vec::new();
         for mcp_server in mcp_servers {
-            if let Some((name, mcp_server_config)) =
-                convert_mcp_server(config.cwd.as_path(), mcp_server)?
-            {
-                new_mcp_servers.insert(name, mcp_server_config);
+            match mcp_server {
+                McpServer::Acp(server) => {
+                    let bridge =
+                        AcpMcpBridge::start(cx.clone(), server.id.clone(), server.meta.clone())
+                            .await?;
+                    let converted = convert_acp_mcp_server(server, bridge.url())?;
+                    let (name, mcp_server_config) = build_mcp_server_config(converted)?;
+                    new_mcp_servers.insert(name, mcp_server_config);
+                    mcp_bridges.push(bridge);
+                }
+                server => {
+                    if let Some((name, mcp_server_config)) =
+                        convert_mcp_server(config.cwd.as_path(), server)?
+                    {
+                        new_mcp_servers.insert(name, mcp_server_config);
+                    }
+                }
             }
         }
 
-        config
+        if let Err(err) = config
             .mcp_servers
             .set(new_mcp_servers)
-            .map_err(|e| anyhow::anyhow!(e))?;
+            .map_err(|e| anyhow::anyhow!(e))
+        {
+            shutdown_mcp_bridges(&mcp_bridges).await;
+            return Err(Error::internal_error().data(err.to_string()));
+        }
 
-        Ok(config)
+        Ok(SessionConfigBuild {
+            config,
+            mcp_bridges,
+        })
     }
 }
 
@@ -891,7 +964,7 @@ impl CodexAgent {
 
         let mut agent_capabilities = AgentCapabilities::new()
             .prompt_capabilities(PromptCapabilities::new().embedded_context(true).image(true))
-            .mcp_capabilities(McpCapabilities::new().http(true))
+            .mcp_capabilities(McpCapabilities::new().http(true).acp(true))
             .load_session(true)
             .auth(AgentAuthCapabilities::new().logout(LogoutCapabilities::new()));
 
@@ -1048,6 +1121,7 @@ impl CodexAgent {
         thread: Arc<dyn CodexThreadImpl>,
         config: Config,
         additional_directories: Vec<PathBuf>,
+        mcp_bridges: Vec<AcpMcpBridge>,
         cx: ConnectionTo<Client>,
     ) -> Arc<Thread> {
         Arc::new(Thread::new(ThreadInit {
@@ -1060,6 +1134,7 @@ impl CodexAgent {
             client_info: self.client_info.clone(),
             config,
             additional_directories,
+            mcp_bridges,
             cx,
         }))
     }
@@ -1118,16 +1193,26 @@ impl CodexAgent {
 
         let additional_directories =
             read_additional_directories(&cwd, additional_directories, meta)?;
-        let config = self.build_session_config(&cwd, &additional_directories, mcp_servers)?;
+        let SessionConfigBuild {
+            config,
+            mcp_bridges,
+        } = self
+            .build_session_config(&cwd, &additional_directories, mcp_servers, &cx)
+            .await?;
         let num_mcp_servers = config.mcp_servers.len();
 
+        let new_thread = Box::pin(self.thread_manager.start_thread(config.clone())).await;
         let NewThread {
             thread_id,
             thread,
             session_configured: _,
-        } = Box::pin(self.thread_manager.start_thread(config.clone()))
-            .await
-            .map_err(|_e| Error::internal_error())?;
+        } = match new_thread {
+            Ok(new_thread) => new_thread,
+            Err(_e) => {
+                shutdown_mcp_bridges(&mcp_bridges).await;
+                return Err(Error::internal_error());
+            }
+        };
 
         let session_id = Self::session_id_from_thread_id(thread_id);
         let thread = self.create_thread(
@@ -1136,11 +1221,21 @@ impl CodexAgent {
             thread,
             config,
             additional_directories,
+            mcp_bridges,
             cx,
         );
-        let load = thread.load().await?;
+        let load = match thread.load().await {
+            Ok(load) => load,
+            Err(err) => {
+                thread.shutdown().await?;
+                return Err(err);
+            }
+        };
 
-        write_sessions(&self.sessions)?.insert(session_id.clone(), thread);
+        if let Err(err) = insert_session_thread(&self.sessions, session_id.clone(), &thread) {
+            thread.shutdown().await?;
+            return Err(err);
+        }
 
         debug!("Created new session with {} MCP servers", num_mcp_servers);
 
@@ -1205,21 +1300,32 @@ impl CodexAgent {
 
         let rollout_items = rollout_items_from_history(history);
 
-        let config = self.build_session_config(&cwd, &additional_directories, mcp_servers)?;
+        let SessionConfigBuild {
+            config,
+            mcp_bridges,
+        } = self
+            .build_session_config(&cwd, &additional_directories, mcp_servers, &cx)
+            .await?;
 
-        let NewThread {
-            thread_id,
-            thread,
-            session_configured: _,
-        } = Box::pin(self.thread_manager.resume_thread_from_rollout(
+        let new_thread = Box::pin(self.thread_manager.resume_thread_from_rollout(
             config.clone(),
             rollout_path,
             self.auth_manager.clone(),
             None,
             false,
         ))
-        .await
-        .map_err(|e| Error::internal_error().data(e.to_string()))?;
+        .await;
+        let NewThread {
+            thread_id,
+            thread,
+            session_configured: _,
+        } = match new_thread {
+            Ok(new_thread) => new_thread,
+            Err(err) => {
+                shutdown_mcp_bridges(&mcp_bridges).await;
+                return Err(Error::internal_error().data(err.to_string()));
+            }
+        };
 
         let thread = self.create_thread(
             session_id.clone(),
@@ -1227,14 +1333,27 @@ impl CodexAgent {
             thread,
             config.clone(),
             additional_directories,
+            mcp_bridges,
             cx,
         );
 
-        thread.replay_history(rollout_items).await?;
+        if let Err(err) = thread.replay_history(rollout_items).await {
+            thread.shutdown().await?;
+            return Err(err);
+        }
 
-        let load = thread.load().await?;
+        let load = match thread.load().await {
+            Ok(load) => load,
+            Err(err) => {
+                thread.shutdown().await?;
+                return Err(err);
+            }
+        };
 
-        write_sessions(&self.sessions)?.insert(session_id, thread);
+        if let Err(err) = insert_session_thread(&self.sessions, session_id, &thread) {
+            thread.shutdown().await?;
+            return Err(err);
+        }
 
         Ok(LoadSessionResponse::new()
             .modes(load.modes)
@@ -1286,21 +1405,32 @@ impl CodexAgent {
         .map_err(|e| Error::internal_error().data(e.to_string()))?
         .ok_or_else(|| Error::resource_not_found(None))?;
 
-        let config = self.build_session_config(&cwd, &additional_directories, mcp_servers)?;
+        let SessionConfigBuild {
+            config,
+            mcp_bridges,
+        } = self
+            .build_session_config(&cwd, &additional_directories, mcp_servers, &cx)
+            .await?;
 
-        let NewThread {
-            thread_id,
-            thread,
-            session_configured: _,
-        } = Box::pin(self.thread_manager.resume_thread_from_rollout(
+        let new_thread = Box::pin(self.thread_manager.resume_thread_from_rollout(
             config.clone(),
             rollout_path,
             self.auth_manager.clone(),
             None,
             false,
         ))
-        .await
-        .map_err(|e| Error::internal_error().data(e.to_string()))?;
+        .await;
+        let NewThread {
+            thread_id,
+            thread,
+            session_configured: _,
+        } = match new_thread {
+            Ok(new_thread) => new_thread,
+            Err(err) => {
+                shutdown_mcp_bridges(&mcp_bridges).await;
+                return Err(Error::internal_error().data(err.to_string()));
+            }
+        };
 
         let thread = self.create_thread(
             session_id.clone(),
@@ -1308,11 +1438,21 @@ impl CodexAgent {
             thread,
             config,
             additional_directories,
+            mcp_bridges,
             cx,
         );
-        let load = thread.load().await?;
+        let load = match thread.load().await {
+            Ok(load) => load,
+            Err(err) => {
+                thread.shutdown().await?;
+                return Err(err);
+            }
+        };
 
-        write_sessions(&self.sessions)?.insert(session_id, thread);
+        if let Err(err) = insert_session_thread(&self.sessions, session_id, &thread) {
+            thread.shutdown().await?;
+            return Err(err);
+        }
 
         Ok(ResumeSessionResponse::new()
             .modes(load.modes)
@@ -1357,21 +1497,32 @@ impl CodexAgent {
 
         let additional_directories =
             read_additional_directories(&cwd, additional_directories, meta)?;
-        let config = self.build_session_config(&cwd, &additional_directories, mcp_servers)?;
+        let SessionConfigBuild {
+            config,
+            mcp_bridges,
+        } = self
+            .build_session_config(&cwd, &additional_directories, mcp_servers, &cx)
+            .await?;
 
-        let NewThread {
-            thread_id,
-            thread,
-            session_configured: _,
-        } = Box::pin(self.thread_manager.fork_thread(
+        let new_thread = Box::pin(self.thread_manager.fork_thread(
             ForkSnapshot::Interrupted,
             config.clone(),
             rollout_path,
             None,
             None,
         ))
-        .await
-        .map_err(|e| Error::internal_error().data(e.to_string()))?;
+        .await;
+        let NewThread {
+            thread_id,
+            thread,
+            session_configured: _,
+        } = match new_thread {
+            Ok(new_thread) => new_thread,
+            Err(err) => {
+                shutdown_mcp_bridges(&mcp_bridges).await;
+                return Err(Error::internal_error().data(err.to_string()));
+            }
+        };
 
         let forked_session_id = Self::session_id_from_thread_id(thread_id);
         let thread = self.create_thread(
@@ -1380,11 +1531,22 @@ impl CodexAgent {
             thread,
             config,
             additional_directories,
+            mcp_bridges,
             cx,
         );
-        let load = thread.load().await?;
+        let load = match thread.load().await {
+            Ok(load) => load,
+            Err(err) => {
+                thread.shutdown().await?;
+                return Err(err);
+            }
+        };
 
-        write_sessions(&self.sessions)?.insert(forked_session_id.clone(), thread);
+        if let Err(err) = insert_session_thread(&self.sessions, forked_session_id.clone(), &thread)
+        {
+            thread.shutdown().await?;
+            return Err(err);
+        }
 
         Ok(ForkSessionResponse::new(forked_session_id)
             .modes(load.modes)
@@ -2217,12 +2379,50 @@ mod tests {
     }
 
     #[test]
-    fn convert_mcp_server_rejects_acp_transport_until_bridge_exists() {
-        let server = McpServer::Acp(McpServerAcp::new("Project Tools", "project-tools"));
+    fn convert_acp_mcp_server_uses_bridge_url() {
+        let meta: Meta = serde_json::from_value(json!({
+            "codex": {
+                "required": true,
+                "startupTimeoutSec": 2.5,
+                "enabledTools": ["lookup"]
+            }
+        }))
+        .expect("valid meta");
+        let server = McpServerAcp::new("Project Tools", "project-tools").meta(meta);
 
-        let err = convert_mcp_server(Path::new("/workspace"), server)
-            .expect_err("ACP transport should fail until a proxy bridge is available");
-        assert!(format!("{err:?}").contains("MCP-over-ACP"));
+        let converted = convert_acp_mcp_server(server, "http://127.0.0.1:65535/mcp")
+            .expect("ACP transport conversion should succeed");
+        let (name, config) = build_mcp_server_config(converted)
+            .expect("ACP server should be converted to a bridge-backed MCP config");
+
+        assert_eq!(name, "Project_Tools");
+        assert!(config.required);
+        assert_eq!(
+            config.startup_timeout_sec,
+            Some(Duration::from_secs_f64(2.5))
+        );
+        assert_eq!(config.enabled_tools, Some(vec!["lookup".to_string()]));
+        match config.transport {
+            McpServerTransportConfig::StreamableHttp { url, .. } => {
+                assert_eq!(url, "http://127.0.0.1:65535/mcp");
+            }
+            other => panic!("unexpected transport: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn convert_mcp_server_rejects_http_only_meta_for_acp_transport() {
+        let meta: Meta = serde_json::from_value(json!({
+            "codex": {
+                "bearerTokenEnvVar": "TOKEN"
+            }
+        }))
+        .expect("valid meta");
+        let server = McpServerAcp::new("Project Tools", "project-tools").meta(meta);
+
+        let err = convert_acp_mcp_server(server, "http://127.0.0.1:65535/mcp")
+            .expect_err("HTTP-only meta should fail for ACP transport");
+        assert!(format!("{err:?}").contains("not supported for ACP transport"));
     }
 
     #[test]

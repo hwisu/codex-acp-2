@@ -412,6 +412,7 @@ async fn test_thread_shutdown_bypasses_blocked_permission_request() -> anyhow::R
     let thread = Thread {
         thread: conversation.clone(),
         additional_directories: Vec::new(),
+        mcp_bridges: Vec::new(),
         message_tx,
         _handle: handle,
     };
@@ -523,6 +524,7 @@ fn thread_with_closed_actor_channel() -> Thread {
     Thread {
         thread: conversation,
         additional_directories: Vec::new(),
+        mcp_bridges: Vec::new(),
         message_tx,
         _handle: tokio::spawn(async {}),
     }

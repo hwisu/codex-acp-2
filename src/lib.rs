@@ -9,6 +9,7 @@ use std::sync::Arc;
 use tokio_util::compat::{TokioAsyncReadCompatExt, TokioAsyncWriteCompatExt};
 use tracing_subscriber::EnvFilter;
 
+mod acp_mcp_bridge;
 mod boundary;
 mod codex_agent;
 mod display;
