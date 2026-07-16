@@ -9,12 +9,16 @@ impl ModelsManagerImpl for PresetModelsManager {
     fn get_model(
         &self,
         _model_id: Option<&str>,
+        _config: &Config,
     ) -> Pin<Box<dyn Future<Output = String> + Send + '_>> {
         let default_model = self.default_model.clone();
         Box::pin(async move { default_model })
     }
 
-    fn list_models(&self) -> Pin<Box<dyn Future<Output = Vec<ModelPreset>> + Send + '_>> {
+    fn list_models(
+        &self,
+        _config: &Config,
+    ) -> Pin<Box<dyn Future<Output = Vec<ModelPreset>> + Send + '_>> {
         let presets = self.presets.clone();
         Box::pin(async move { presets })
     }
@@ -30,7 +34,7 @@ fn model_filter_keeps_gpt_5_3_and_newer_high_efforts() {
 
     assert!(ids.contains(&"gpt-5.5"));
     assert!(ids.contains(&"gpt-5.4"));
-    assert!(ids.contains(&"gpt-5.3-codex"));
+    assert!(ids.contains(&"gpt-5.6-sol"));
     assert!(!ids.contains(&"gpt-5.2"));
     assert!(
         presets
@@ -40,7 +44,10 @@ fn model_filter_keeps_gpt_5_3_and_newer_high_efforts() {
                 .iter()
                 .all(|effort| matches!(
                     effort.effort,
-                    ReasoningEffort::High | ReasoningEffort::XHigh
+                    ReasoningEffort::High
+                        | ReasoningEffort::XHigh
+                        | ReasoningEffort::Max
+                        | ReasoningEffort::Ultra
                 )))
     );
 }
@@ -78,6 +85,7 @@ async fn config_model_options_keep_hidden_default_model() -> anyhow::Result<()> 
 #[tokio::test]
 async fn config_options_expose_mode_model_and_reasoning_separately() -> anyhow::Result<()> {
     let (_, _, _, mut actor) = setup_actor().await?;
+    let expected_model_id = all_model_presets()[0].id.clone();
     actor.config.model_reasoning_effort = Some(ReasoningEffort::XHigh);
     actor.state.set_collaboration_mode_kind(ModeKind::Plan);
 
@@ -101,7 +109,7 @@ async fn config_options_expose_mode_model_and_reasoning_separately() -> anyhow::
     assert!(matches!(
         &model.kind,
         SessionConfigKind::Select(select)
-            if select.current_value.0.as_ref() == "gpt-5.5"
+            if select.current_value.0.as_ref() == expected_model_id
                 && select_option_ids(&select.options).iter().all(|id| !id.contains('['))
     ));
 

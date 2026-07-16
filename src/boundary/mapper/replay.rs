@@ -17,6 +17,8 @@ pub(crate) fn route_replay_rollout_item(item: &RolloutItem) -> ReplayRolloutItem
         }
         RolloutItem::SessionMeta(..)
         | RolloutItem::InterAgentCommunication(..)
+        | RolloutItem::InterAgentCommunicationMetadata { .. }
+        | RolloutItem::WorldState(..)
         | RolloutItem::Compacted(..)
         | RolloutItem::TurnContext(..) => ReplayRolloutItemRoute::Ignore {
             item,
@@ -270,7 +272,8 @@ pub(crate) fn route_replay_response_item(item: &ResponseItem) -> ReplayResponseI
         },
         ResponseItem::Compaction { .. }
         | ResponseItem::ContextCompaction { .. }
-        | ResponseItem::CompactionTrigger { .. } => ReplayResponseItemRoute::Ignore {
+        | ResponseItem::CompactionTrigger { .. }
+        | ResponseItem::AdditionalTools { .. } => ReplayResponseItemRoute::Ignore {
             item,
             reason: StateOnly,
         },

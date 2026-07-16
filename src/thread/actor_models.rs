@@ -16,7 +16,7 @@ impl<A: Auth> ThreadActor<A> {
     pub(super) async fn model_presets(&self) -> Vec<ModelPreset> {
         let current_model = self.get_current_model().await;
         filter_model_presets_for_picker(
-            self.models_manager.list_models().await,
+            self.models_manager.list_models(&self.config).await,
             Some(current_model.as_str()),
         )
     }
@@ -84,7 +84,7 @@ impl<A: Auth> ThreadActor<A> {
 
     pub(super) async fn get_current_model(&self) -> String {
         self.models_manager
-            .get_model(self.config.model.as_deref())
+            .get_model(self.config.model.as_deref(), &self.config)
             .await
     }
 

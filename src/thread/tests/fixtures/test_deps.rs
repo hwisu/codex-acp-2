@@ -14,11 +14,15 @@ impl ModelsManagerImpl for StubModelsManager {
     fn get_model(
         &self,
         _model_id: Option<&str>,
+        _config: &Config,
     ) -> Pin<Box<dyn Future<Output = String> + Send + '_>> {
         Box::pin(async { all_model_presets()[0].clone().id })
     }
 
-    fn list_models(&self) -> Pin<Box<dyn Future<Output = Vec<ModelPreset>> + Send + '_>> {
+    fn list_models(
+        &self,
+        _config: &Config,
+    ) -> Pin<Box<dyn Future<Output = Vec<ModelPreset>> + Send + '_>> {
         Box::pin(async { all_model_presets().to_owned() })
     }
 }

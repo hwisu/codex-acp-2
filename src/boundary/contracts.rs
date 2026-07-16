@@ -99,13 +99,13 @@ fn readmes_expose_current_acp_support_summary_at_the_top() {
 fn readmes_expose_upstream_acp_and_codex_versions() {
     let required = [
         "https://github.com/agentclientprotocol/codex-acp",
-        "@agentclientprotocol/codex-acp = 1.0.0",
+        "@agentclientprotocol/codex-acp = 1.1.4",
         "https://crates.io/crates/agent-client-protocol",
         "https://github.com/agentclientprotocol/rust-sdk",
-        "agent-client-protocol = 1.0.0",
-        "agent-client-protocol-schema = 1.1.0",
-        "https://github.com/openai/codex/tree/rust-v0.142.1/codex-rs",
-        "95da8fd25193fd58d1c5984eee20d1ef7bd50e77",
+        "agent-client-protocol = 1.2.0",
+        "agent-client-protocol-schema = 1.4.0",
+        "https://github.com/openai/codex/tree/rust-v0.144.5/codex-rs",
+        "87db9bc18ba5bc82c1cb4e4381b44f693ee35623",
     ];
 
     for readme in ["README.md", "README.ko.md"] {

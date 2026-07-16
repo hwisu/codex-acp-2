@@ -132,7 +132,8 @@ pub(crate) fn classify_response_item(item: &ResponseItem) -> BridgeEffectKind {
         ResponseItem::ImageGenerationCall { .. } => Ignore(AlreadyRenderedByAnotherEvent),
         ResponseItem::Compaction { .. }
         | ResponseItem::ContextCompaction { .. }
-        | ResponseItem::CompactionTrigger { .. } => Ignore(StateOnly),
+        | ResponseItem::CompactionTrigger { .. }
+        | ResponseItem::AdditionalTools { .. } => Ignore(StateOnly),
         ResponseItem::ToolSearchCall { .. }
         | ResponseItem::ToolSearchOutput { .. }
         | ResponseItem::Other => Ignore(UnsupportedByAcp),
@@ -146,6 +147,8 @@ pub(crate) fn classify_rollout_item(item: &RolloutItem) -> BridgeEffectKind {
         RolloutItem::ResponseItem(item) => classify_response_item(item),
         RolloutItem::SessionMeta(..)
         | RolloutItem::InterAgentCommunication(..)
+        | RolloutItem::InterAgentCommunicationMetadata { .. }
+        | RolloutItem::WorldState(..)
         | RolloutItem::Compacted(..)
         | RolloutItem::TurnContext(..) => {
             BridgeEffectKind::Ignore(IgnoredCodexEventReason::StateOnly)

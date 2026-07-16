@@ -68,5 +68,11 @@ fn model_is_gpt_5_3_or_newer(model: &str) -> bool {
 }
 
 fn reasoning_effort_is_high_or_higher(effort: &ReasoningEffort) -> bool {
-    matches!(effort, ReasoningEffort::High | ReasoningEffort::XHigh)
+    matches!(
+        effort,
+        ReasoningEffort::High
+            | ReasoningEffort::XHigh
+            | ReasoningEffort::Max
+            | ReasoningEffort::Ultra
+    )
 }

@@ -120,14 +120,17 @@ pub(crate) fn image_generation_end_effect(event: ImageGenerationEndEvent) -> Bri
 }
 
 pub(crate) fn view_image_tool_call(event: ViewImageToolCallEvent) -> ToolCall {
-    let display_path = event.path.display().to_string();
+    let display_path = event.path.inferred_native_path_string();
     ToolCall::new(event.call_id, format!("View Image {display_path}"))
         .kind(ToolKind::Read)
         .status(ToolCallStatus::Completed)
         .content(vec![ToolCallContent::Content(Content::new(
-            ContentBlock::ResourceLink(ResourceLink::new(display_path.clone(), display_path)),
+            ContentBlock::ResourceLink(ResourceLink::new(
+                display_path.clone(),
+                display_path.clone(),
+            )),
         ))])
-        .locations(vec![ToolCallLocation::new(event.path)])
+        .locations(vec![ToolCallLocation::new(display_path)])
 }
 
 pub(crate) fn view_image_effect(event: ViewImageToolCallEvent) -> BridgeEffect {

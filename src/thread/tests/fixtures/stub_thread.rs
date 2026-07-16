@@ -1,4 +1,5 @@
 use super::*;
+use codex_protocol::protocol::EnteredReviewModeEvent;
 
 fn fixture_cwd() -> PathBuf {
     std::env::current_dir().expect("test fixture should run with a current directory")
@@ -437,10 +438,20 @@ impl CodexThreadImpl for StubCodexThread {
                     self.send_turn_complete(id, id.to_string());
                 }
                 Op::Review { review_request } => {
-                    self.send_event(id, EventMsg::EnteredReviewMode(review_request.clone()));
+                    self.send_event(
+                        id,
+                        EventMsg::EnteredReviewMode(EnteredReviewModeEvent {
+                            target: review_request.target.clone(),
+                            user_facing_hint: review_request.user_facing_hint.clone(),
+                            turn_id: Some(id.to_string()),
+                            item_id: None,
+                        }),
+                    );
                     self.send_event(
                         id,
                         EventMsg::ExitedReviewMode(ExitedReviewModeEvent {
+                            turn_id: Some(id.to_string()),
+                            item_id: None,
                             review_output: Some(ReviewOutputEvent {
                                 findings: vec![],
                                 overall_correctness: String::new(),

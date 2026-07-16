@@ -1,6 +1,6 @@
 # codex-acp-2
 
-Codex ACP 버전: `0.142.1` · ACP 계약 구현: advertised `100%` (`14/14` handler), enabled SDK surface `15/16` (`session/fork`, `mcp/connect` 활성화)
+Codex ACP 버전: `0.144.5` · ACP 계약 구현: advertised `100%` (`14/14` handler), enabled SDK surface `15/16` (`session/fork`, `mcp/connect` 활성화)
 
 [English](README.md)
 
@@ -22,15 +22,15 @@ ACP 호환 클라이언트는 Codex TUI를 거치지 않고 Codex 세션을 실�
 
 ## 고정 버전
 
-- Codex Rust crates: [`openai/codex`](https://github.com/openai/codex/tree/rust-v0.142.1/codex-rs)
-  tag `rust-v0.142.1` (`Cargo.lock` 기준 `95da8fd25193fd58d1c5984eee20d1ef7bd50e77`)
+- Codex Rust crates: [`openai/codex`](https://github.com/openai/codex/tree/rust-v0.144.5/codex-rs)
+  tag `rust-v0.144.5` (`Cargo.lock` 기준 `87db9bc18ba5bc82c1cb4e4381b44f693ee35623`)
 - ACP Rust SDK: [`agent-client-protocol`](https://crates.io/crates/agent-client-protocol)
   ([`agentclientprotocol/rust-sdk`](https://github.com/agentclientprotocol/rust-sdk)) -
-  `agent-client-protocol = 1.0.0` + `unstable`
-  (`agent-client-protocol-schema = 1.1.0`, lockfile 기준)
+  `agent-client-protocol = 1.2.0` + `unstable`
+  (`agent-client-protocol-schema = 1.4.0`, lockfile 기준)
 - 공식 Codex ACP adapter 참조:
   [`agentclientprotocol/codex-acp`](https://github.com/agentclientprotocol/codex-acp),
-  npm `@agentclientprotocol/codex-acp = 1.0.0`
+  npm `@agentclientprotocol/codex-acp = 1.1.4`
 
 ## 기능
 

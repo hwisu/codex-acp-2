@@ -51,8 +51,9 @@ use codex_config::{
 };
 use codex_core::{
     ForkSnapshot, NewThread, RolloutRecorder, SortDirection, StateDbHandle, ThreadManager,
-    ThreadSortKey, config::Config, find_thread_path_by_id_str, init_state_db, parse_cursor,
-    resolve_installation_id, thread_store_from_config,
+    ThreadSortKey, config::Config, find_thread_path_by_id_str, init_state_db,
+    local_agent_graph_store_from_state_db, parse_cursor, resolve_installation_id,
+    thread_store_from_config,
 };
 use codex_exec_server::{EnvironmentManager, ExecServerRuntimePaths};
 use codex_extension_api::ExtensionRegistryBuilder;
@@ -188,7 +189,7 @@ fn insert_session_thread(
 
 fn rollout_items_from_history(history: InitialHistory) -> Vec<RolloutItem> {
     match history {
-        InitialHistory::Resumed(resumed) => resumed.history,
+        InitialHistory::Resumed(resumed) => resumed.history.to_vec(),
         InitialHistory::Forked(items) => items,
         InitialHistory::Cleared | InitialHistory::New => Vec::new(),
     }
@@ -402,6 +403,10 @@ fn convert_stdio_mcp_server(
             .validate_source()
             .map_err(|err| Error::invalid_params().data(err))?;
     }
+    let cwd = resolve_mcp_server_cwd(session_cwd, meta.cwd.clone())
+        .map(AbsolutePathBuf::try_from)
+        .transpose()
+        .map_err(Error::into_internal_error)?;
 
     let transport = McpServerTransportConfig::Stdio {
         command: command.display().to_string(),
@@ -412,7 +417,7 @@ fn convert_stdio_mcp_server(
             Some(env.into_iter().map(|env| (env.name, env.value)).collect())
         },
         env_vars,
-        cwd: resolve_mcp_server_cwd(session_cwd, meta.cwd.clone()),
+        cwd: cwd.map(Into::into),
     };
 
     Ok(ConvertedMcpServer {
@@ -434,6 +439,7 @@ fn build_mcp_server_config(
     } = converted;
     let config = McpServerConfig {
         transport,
+        auth: Default::default(),
         environment_id: meta
             .environment_id
             .unwrap_or_else(|| codex_config::DEFAULT_MCP_SERVER_ENVIRONMENT_ID.to_string()),
@@ -689,7 +695,7 @@ impl CodexAgent {
                 )),
                 None,
                 Arc::clone(&thread_store),
-                state_db.clone(),
+                local_agent_graph_store_from_state_db(state_db.as_ref()),
                 installation_id.clone(),
                 None,
                 None,
@@ -916,7 +922,7 @@ impl CodexAgent {
                 McpServer::Acp(server) => {
                     let bridge = match AcpMcpBridge::start(
                         cx.clone(),
-                        server.id.clone(),
+                        server.server_id.clone(),
                         server.meta.clone(),
                     )
                     .await
@@ -2284,7 +2290,10 @@ mod tests {
                 assert_eq!(env_vars[0].name(), "TOKEN");
                 assert_eq!(env_vars[1].name(), "REMOTE_TOKEN");
                 assert_eq!(env_vars[1].source(), Some("remote"));
-                assert_eq!(cwd, Some(PathBuf::from("/workspace/tools/mcp")));
+                assert_eq!(
+                    cwd.as_ref().map(|path| path.as_str()),
+                    Some("/workspace/tools/mcp")
+                );
             }
             other => panic!("unexpected transport: {other:?}"),
         }

@@ -105,6 +105,7 @@ pub(crate) fn route_live_event(event: EventMsg) -> LiveEventRoute {
                 connector_id: _,
                 link_id: _,
                 plugin_id: _,
+                ..
             } = event;
             effect_route(tool_call::mcp_tool_call_begin_effect(call_id, &invocation))
         }
@@ -118,6 +119,7 @@ pub(crate) fn route_live_event(event: EventMsg) -> LiveEventRoute {
                 plugin_id: _,
                 duration: _,
                 result,
+                ..
             } = event;
             effect_route(tool_call::mcp_tool_call_end_effect(call_id, result))
         }

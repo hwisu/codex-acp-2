@@ -2,13 +2,13 @@ use agent_client_protocol::schema::v1::{
     AvailableCommand, AvailableCommandsUpdate, ConfigOptionUpdate, ContentChunk, Meta, Plan,
     PlanEntry, PlanEntryPriority, PlanEntryStatus, SessionConfigOption, SessionUpdate, UsageUpdate,
 };
-use codex_core::review_format::format_review_findings_block;
 use codex_protocol::{
     plan_tool::{PlanItemArg, StepStatus},
     protocol::{
         ExitedReviewModeEvent, ReviewOutputEvent, ThreadGoalUpdatedEvent, ThreadRolledBackEvent,
         TokenCountEvent, WarningEvent,
     },
+    review_format::format_review_findings_block,
 };
 use serde_json::json;
 
@@ -111,7 +111,7 @@ pub(crate) fn usage_effect(
 }
 
 pub(crate) fn review_mode_exit_effect(
-    ExitedReviewModeEvent { review_output }: ExitedReviewModeEvent,
+    ExitedReviewModeEvent { review_output, .. }: ExitedReviewModeEvent,
 ) -> Result<BridgeEffect, IgnoredCodexEventReason> {
     let ReviewOutputEvent {
         findings,
