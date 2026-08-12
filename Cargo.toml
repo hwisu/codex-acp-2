@@ -67,6 +67,11 @@ heck = "0.5.0"
 unicode-segmentation = "1.13"
 uuid = { version = "1", features = ["v4"] }
 
+[target.'cfg(windows)'.dependencies]
+# codex-utils-pty passes winapi handles through std::os::windows::io::RawHandle.
+# Unify winapi's c_void with std::ffi::c_void, including on Windows ARM64.
+winapi = { version = "0.3.9", features = ["std"] }
+
 [dev-dependencies]
 codex-utils-absolute-path = { git = "https://github.com/openai/codex", tag = "rust-v0.147.0" }
 

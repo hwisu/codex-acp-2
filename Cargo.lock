@@ -1794,6 +1794,7 @@ dependencies = [
  "tracing-subscriber",
  "unicode-segmentation",
  "uuid",
+ "winapi",
 ]
 
 [[package]]
