@@ -10,6 +10,7 @@ async fn test_replay_history_restores_pending_user_input() -> anyhow::Result<()>
             RequestUserInputEvent {
                 call_id: "replay-input".to_string(),
                 turn_id: "replay-turn".to_string(),
+                is_blocking: true,
                 auto_resolution_ms: None,
                 questions: vec![RequestUserInputQuestion {
                     id: "confirm_path".to_string(),
@@ -92,6 +93,7 @@ async fn test_replay_history_restores_plan_and_subagent_state() -> anyhow::Resul
                 status: "completed".to_string(),
                 revised_prompt: Some("Render the replay state".to_string()),
                 result: String::new(),
+                transparent_background: None,
                 saved_path: Some(saved_path),
             })),
             RolloutItem::EventMsg(EventMsg::CollabAgentSpawnEnd({
@@ -166,6 +168,7 @@ async fn test_replay_exec_command_function_call_preserves_shell_metadata() -> an
                 "cmd": "cat README.md",
             })
             .to_string(),
+            encrypted_function_args: None,
             call_id: "exec-replay".to_string(),
             internal_chat_message_metadata_passthrough: None,
         })],
@@ -200,6 +203,7 @@ async fn test_replay_invalid_exec_command_arguments_remain_generic() -> anyhow::
                 "cmd": "   ",
             })
             .to_string(),
+            encrypted_function_args: None,
             call_id: "invalid-exec-replay".to_string(),
             internal_chat_message_metadata_passthrough: None,
         })],

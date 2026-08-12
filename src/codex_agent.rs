@@ -4,23 +4,26 @@ use acp::schema::{
         AgentAuthCapabilities, AgentCapabilities, AuthEnvVar, AuthMethod, AuthMethodAgent,
         AuthMethodEnvVar, AuthMethodId, AuthenticateRequest, AuthenticateResponse,
         CancelNotification, ClientCapabilities, CloseSessionRequest, CloseSessionResponse,
-        DeleteSessionRequest, DeleteSessionResponse, ForkSessionRequest, ForkSessionResponse,
-        Implementation, InitializeRequest, InitializeResponse, ListSessionsRequest,
-        ListSessionsResponse, LoadSessionRequest, LoadSessionResponse, LogoutCapabilities,
-        LogoutRequest, LogoutResponse, McpCapabilities, McpServer, McpServerAcp, McpServerHttp,
-        McpServerStdio, Meta, NewSessionRequest, NewSessionResponse, PromptCapabilities,
-        PromptRequest, PromptResponse, ResumeSessionRequest, ResumeSessionResponse,
-        SessionAdditionalDirectoriesCapabilities, SessionCapabilities, SessionCloseCapabilities,
-        SessionConfigId, SessionConfigOptionValue, SessionDeleteCapabilities,
-        SessionForkCapabilities, SessionId, SessionInfo, SessionListCapabilities,
-        SessionResumeCapabilities, SetSessionConfigOptionRequest, SetSessionConfigOptionResponse,
-        SetSessionModeRequest, SetSessionModeResponse,
+        ContentBlock, DeleteSessionRequest, DeleteSessionResponse, ForkSessionRequest,
+        ForkSessionResponse, Implementation, InitializeRequest, InitializeResponse,
+        ListSessionsRequest, ListSessionsResponse, LoadSessionRequest, LoadSessionResponse,
+        LogoutCapabilities, LogoutRequest, LogoutResponse, McpCapabilities, McpServer,
+        McpServerAcp, McpServerHttp, McpServerStdio, Meta, NewSessionRequest, NewSessionResponse,
+        PromptCapabilities, PromptRequest, PromptResponse, ResumeSessionRequest,
+        ResumeSessionResponse, SessionAdditionalDirectoriesCapabilities, SessionCapabilities,
+        SessionCloseCapabilities, SessionConfigId, SessionConfigOptionValue,
+        SessionDeleteCapabilities, SessionForkCapabilities, SessionId, SessionInfo,
+        SessionListCapabilities, SessionResumeCapabilities, SetSessionConfigOptionRequest,
+        SetSessionConfigOptionResponse, SetSessionModeRequest, SetSessionModeResponse,
     },
 };
 use acp::{Agent, Client, ConnectTo, ConnectionTo, Error, Handled, Responder, UntypedMessage};
 use agent_client_protocol as acp;
 
-use crate::{acp_mcp_bridge::AcpMcpBridge, boundary::constants::meta as boundary_meta};
+use crate::{
+    acp_mcp_bridge::AcpMcpBridge, boundary::constants::meta as boundary_meta,
+    session_mode::apply_initial_agent_mode_from_env,
+};
 
 macro_rules! acp_handler {
     ($agent:expr, $req:ty, $method:ident) => {{
@@ -50,8 +53,9 @@ use codex_config::{
     AbsolutePathBuf, AppToolApproval, McpServerConfig, McpServerEnvVar, McpServerTransportConfig,
 };
 use codex_core::{
-    ForkSnapshot, NewThread, RolloutRecorder, SortDirection, StateDbHandle, ThreadManager,
-    ThreadSortKey, config::Config, find_thread_path_by_id_str, init_state_db,
+    CodexAppsToolsCache, ForkSnapshot, NewThread, RolloutRecorder, SortDirection,
+    StartThreadOptions, StateDbHandle, ThreadManager, ThreadSortKey, build_models_manager,
+    config::Config, find_thread_path_by_id_str, init_state_db,
     local_agent_graph_store_from_state_db, parse_cursor, resolve_installation_id,
     thread_store_from_config,
 };
@@ -66,6 +70,7 @@ use codex_login::{
 use codex_model_provider_info::{ModelProviderInfo, WireApi};
 use codex_protocol::{
     ThreadId,
+    mcp::ClientMcpExtensions,
     protocol::{InitialHistory, RolloutItem, SessionSource},
 };
 use std::{
@@ -77,7 +82,7 @@ use std::{
 use tracing::{debug, info};
 use unicode_segmentation::UnicodeSegmentation;
 
-use crate::thread::{CodexThreadImpl, Thread, ThreadInit};
+use crate::thread::{CodexThreadImpl, GoalControlAction, Thread, ThreadInit};
 
 /// The Codex implementation of the ACP Agent.
 ///
@@ -112,6 +117,9 @@ const CUSTOM_GATEWAY_FEATURE_HEADER: &str = "X-Client-Feature-ID";
 const AUTHENTICATION_STATUS_METHOD: &str = "authentication/status";
 const AUTHENTICATION_LOGOUT_METHOD: &str = "authentication/logout";
 const LEGACY_SET_SESSION_MODEL_METHOD: &str = "session/set_model";
+const SESSION_STEERING_METHOD: &str = "_session/steering";
+const GOAL_CONTROL_METHOD: &str = "_session/goal";
+const LEGACY_GOAL_CONTROL_METHOD: &str = "_codex/session/goal_control";
 
 #[derive(Debug, Clone)]
 struct GatewayAuthConfig {
@@ -446,6 +454,7 @@ fn build_mcp_server_config(
         enabled: meta.enabled.unwrap_or(true),
         required: meta.required.unwrap_or(false),
         supports_parallel_tool_calls: meta.supports_parallel_tool_calls.unwrap_or(false),
+        omit_tools_from: None,
         disabled_reason: None,
         startup_timeout_sec: parse_meta_duration("startupTimeoutSec", meta.startup_timeout_sec)?,
         tool_timeout_sec: parse_meta_duration("toolTimeoutSec", meta.tool_timeout_sec)?,
@@ -458,6 +467,25 @@ fn build_mcp_server_config(
         tools: HashMap::default(),
     };
     Ok((normalize_mcp_server_name(&name), config))
+}
+
+fn env_flag_enabled(name: &str) -> bool {
+    std::env::var(name)
+        .map(|value| {
+            matches!(
+                value.trim().to_ascii_lowercase().as_str(),
+                "1" | "true" | "yes" | "on"
+            )
+        })
+        .unwrap_or(false)
+}
+
+fn should_filter_mcp_conflict(
+    configured_servers: &HashMap<String, McpServerConfig>,
+    candidate_name: &str,
+    filtering_disabled: bool,
+) -> bool {
+    !filtering_disabled && configured_servers.contains_key(candidate_name)
 }
 
 async fn shutdown_mcp_bridges(bridges: &[AcpMcpBridge]) {
@@ -665,6 +693,7 @@ impl CodexAgent {
                     std::env::current_exe()?,
                     codex_linux_sandbox_exe,
                 )?),
+                config.http_client_factory(),
             )
             .await
             .map_err(std::io::Error::other)?,
@@ -687,6 +716,8 @@ impl CodexAgent {
             ThreadManager::new(
                 &config,
                 auth_manager.clone(),
+                build_models_manager(&config, auth_manager.clone()),
+                CodexAppsToolsCache::default(),
                 SessionSource::Unknown,
                 environment_manager.clone(),
                 Arc::new(extensions.build()),
@@ -809,7 +840,10 @@ impl CodexAgent {
                         match request.method.as_str() {
                             AUTHENTICATION_STATUS_METHOD
                             | AUTHENTICATION_LOGOUT_METHOD
-                            | LEGACY_SET_SESSION_MODEL_METHOD => {
+                            | LEGACY_SET_SESSION_MODEL_METHOD
+                            | SESSION_STEERING_METHOD
+                            | GOAL_CONTROL_METHOD
+                            | LEGACY_GOAL_CONTROL_METHOD => {
                                 cx.spawn(async move {
                                     responder.respond_with_result(
                                         agent.handle_extension_request(request).await,
@@ -869,6 +903,8 @@ impl CodexAgent {
     ) -> Result<SessionConfigBuild, Error> {
         let mut config = self.config.clone();
         config.cwd = cwd.try_into().map_err(Error::into_internal_error)?;
+        apply_initial_agent_mode_from_env(&mut config)
+            .map_err(|err| Error::internal_error().data(err.to_string()))?;
 
         let mut workspace_roots = Vec::with_capacity(additional_directories.len() + 1);
         workspace_roots.push(config.cwd.clone());
@@ -906,6 +942,7 @@ impl CodexAgent {
                 websocket_connect_timeout_ms: None,
                 requires_openai_auth: false,
                 supports_websockets: false,
+                supports_standalone_web_search: false,
             };
             config.model_provider_id = CUSTOM_GATEWAY_PROVIDER_ID.to_string();
             config.model_provider = provider.clone();
@@ -915,7 +952,9 @@ impl CodexAgent {
         }
 
         // Propagate any client-provided MCP servers that codex-rs supports.
-        let mut new_mcp_servers = config.mcp_servers.get().clone();
+        let configured_mcp_servers = config.mcp_servers.get().clone();
+        let mut new_mcp_servers = configured_mcp_servers.clone();
+        let mcp_config_filtering_disabled = env_flag_enabled("DISABLE_MCP_CONFIG_FILTERING");
         let mut mcp_bridges = Vec::new();
         for mcp_server in mcp_servers {
             match mcp_server {
@@ -950,11 +989,34 @@ impl CodexAgent {
                             return Err(err);
                         }
                     };
+                    if should_filter_mcp_conflict(
+                        &configured_mcp_servers,
+                        &name,
+                        mcp_config_filtering_disabled,
+                    ) {
+                        debug!(
+                            server = %name,
+                            "Ignoring client-provided MCP server that conflicts with configured MCP"
+                        );
+                        bridge.shutdown().await;
+                        continue;
+                    }
                     new_mcp_servers.insert(name, mcp_server_config);
                     mcp_bridges.push(bridge);
                 }
                 server => match convert_mcp_server(config.cwd.as_path(), server) {
                     Ok(Some((name, mcp_server_config))) => {
+                        if should_filter_mcp_conflict(
+                            &configured_mcp_servers,
+                            &name,
+                            mcp_config_filtering_disabled,
+                        ) {
+                            debug!(
+                                server = %name,
+                                "Ignoring client-provided MCP server that conflicts with configured MCP"
+                            );
+                            continue;
+                        }
                         new_mcp_servers.insert(name, mcp_server_config);
                     }
                     Ok(None) => {}
@@ -1029,10 +1091,27 @@ impl CodexAgent {
             });
         }
 
+        let mut response_meta = Meta::new();
+        response_meta.insert(
+            boundary_meta::STEERING.to_string(),
+            serde_json::json!({ "supported": true }),
+        );
+        if self.config.features.enabled(Feature::Goals) {
+            response_meta.insert(
+                boundary_meta::GOAL.to_string(),
+                serde_json::json!({
+                    "version": 1,
+                    "controlMethod": GOAL_CONTROL_METHOD,
+                    "actions": ["set", "pause", "resume", "clear"],
+                }),
+            );
+        }
+
         Ok(InitializeResponse::new(protocol_version)
             .agent_capabilities(agent_capabilities)
             .agent_info(Implementation::new("codex-acp", env!("CARGO_PKG_VERSION")).title("Codex"))
-            .auth_methods(auth_methods))
+            .auth_methods(auth_methods)
+            .meta(response_meta))
     }
 
     async fn authenticate(
@@ -1154,11 +1233,14 @@ impl CodexAgent {
         session_id: SessionId,
         thread_id: ThreadId,
         thread: Arc<dyn CodexThreadImpl>,
-        config: Config,
+        session_config: SessionConfigBuild,
         additional_directories: Vec<PathBuf>,
-        mcp_bridges: Vec<AcpMcpBridge>,
         cx: ConnectionTo<Client>,
     ) -> Arc<Thread> {
+        let SessionConfigBuild {
+            config,
+            mcp_bridges,
+        } = session_config;
         Arc::new(Thread::new(ThreadInit {
             session_id,
             thread_id,
@@ -1236,7 +1318,11 @@ impl CodexAgent {
             .await?;
         let num_mcp_servers = config.mcp_servers.len();
 
-        let new_thread = Box::pin(self.thread_manager.start_thread(config.clone())).await;
+        let new_thread = Box::pin(
+            self.thread_manager
+                .start_thread(StartThreadOptions::new(config.clone())),
+        )
+        .await;
         let NewThread {
             thread_id,
             thread,
@@ -1254,9 +1340,11 @@ impl CodexAgent {
             session_id.clone(),
             thread_id,
             thread,
-            config,
+            SessionConfigBuild {
+                config,
+                mcp_bridges,
+            },
             additional_directories,
-            mcp_bridges,
             cx,
         );
         let load = match thread.load().await {
@@ -1347,7 +1435,7 @@ impl CodexAgent {
             rollout_path,
             self.auth_manager.clone(),
             None,
-            false,
+            ClientMcpExtensions::default(),
         ))
         .await;
         let NewThread {
@@ -1366,9 +1454,11 @@ impl CodexAgent {
             session_id.clone(),
             thread_id,
             thread,
-            config.clone(),
+            SessionConfigBuild {
+                config: config.clone(),
+                mcp_bridges,
+            },
             additional_directories,
-            mcp_bridges,
             cx,
         );
 
@@ -1452,7 +1542,7 @@ impl CodexAgent {
             rollout_path,
             self.auth_manager.clone(),
             None,
-            false,
+            ClientMcpExtensions::default(),
         ))
         .await;
         let NewThread {
@@ -1471,9 +1561,11 @@ impl CodexAgent {
             session_id.clone(),
             thread_id,
             thread,
-            config,
+            SessionConfigBuild {
+                config,
+                mcp_bridges,
+            },
             additional_directories,
-            mcp_bridges,
             cx,
         );
         let load = match thread.load().await {
@@ -1564,9 +1656,11 @@ impl CodexAgent {
             forked_session_id.clone(),
             thread_id,
             thread,
-            config,
+            SessionConfigBuild {
+                config,
+                mcp_bridges,
+            },
             additional_directories,
-            mcp_bridges,
             cx,
         );
         let load = match thread.load().await {
@@ -1799,6 +1893,43 @@ impl CodexAgent {
                     .await?;
                 Ok(serde_json::json!({}))
             }
+            SESSION_STEERING_METHOD => {
+                let params: SessionSteerParams = serde_json::from_value(params).map_err(|err| {
+                    Error::invalid_params()
+                        .data(format!("invalid {SESSION_STEERING_METHOD} params: {err}"))
+                })?;
+                let thread = self.get_thread(&params.session_id)?;
+                let outcome = thread
+                    .steer(PromptRequest::new(params.session_id, params.prompt))
+                    .await?;
+                Ok(serde_json::json!({ "outcome": outcome }))
+            }
+            GOAL_CONTROL_METHOD | LEGACY_GOAL_CONTROL_METHOD => {
+                let params: GoalControlParams = serde_json::from_value(params).map_err(|err| {
+                    Error::invalid_params()
+                        .data(format!("invalid {GOAL_CONTROL_METHOD} params: {err}"))
+                })?;
+                let action = match params.action.as_str() {
+                    "set" => {
+                        let objective = params.objective.ok_or_else(|| {
+                            Error::invalid_params().data("goal set requires an objective")
+                        })?;
+                        GoalControlAction::Set(objective)
+                    }
+                    "pause" => GoalControlAction::Pause,
+                    "resume" => GoalControlAction::Resume,
+                    "clear" => GoalControlAction::Clear,
+                    action => {
+                        return Err(Error::invalid_params().data(format!(
+                            "unsupported goal action {action:?}; expected set, pause, resume, or clear"
+                        )));
+                    }
+                };
+                self.get_thread(&params.session_id)?
+                    .control_goal(action)
+                    .await?;
+                Ok(serde_json::json!({}))
+            }
             _ => Err(Error::method_not_found()),
         }
     }
@@ -1830,6 +1961,21 @@ impl CodexAgent {
         };
         Ok(status)
     }
+}
+
+#[derive(Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SessionSteerParams {
+    session_id: SessionId,
+    prompt: Vec<ContentBlock>,
+}
+
+#[derive(Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct GoalControlParams {
+    session_id: SessionId,
+    action: String,
+    objective: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -2020,7 +2166,7 @@ mod tests {
             None,
             None,
             keyring_backend_kind,
-            None,
+            codex_login::test_support::transport_default_auth_route_config(),
         )
         .await;
         let auth = auth_manager
@@ -2064,7 +2210,7 @@ mod tests {
             None,
             None,
             keyring_backend_kind,
-            None,
+            codex_login::test_support::transport_default_auth_route_config(),
         )
         .await;
         let auth = auth_manager.auth().await.expect("stored auth should load");
@@ -2132,6 +2278,30 @@ mod tests {
             panic!("poisoned lock should fail");
         };
         assert!(format!("{err:?}").contains("sessions state is poisoned"));
+    }
+
+    #[test]
+    fn configured_mcp_server_wins_unless_filtering_is_disabled() -> Result<(), Error> {
+        let configured = HashMap::from([(
+            "shared-mcp".to_string(),
+            build_mcp_server_config(ConvertedMcpServer {
+                name: "shared-mcp".to_string(),
+                transport: McpServerTransportConfig::StreamableHttp {
+                    url: "https://example.com/mcp".to_string(),
+                    bearer_token_env_var: None,
+                    http_headers: None,
+                    env_http_headers: None,
+                },
+                oauth_resource: None,
+                meta: CodexMcpServerMeta::default(),
+            })?
+            .1,
+        )]);
+
+        assert!(should_filter_mcp_conflict(&configured, "shared-mcp", false));
+        assert!(!should_filter_mcp_conflict(&configured, "shared-mcp", true));
+        assert!(!should_filter_mcp_conflict(&configured, "other-mcp", false));
+        Ok(())
     }
 
     #[test]

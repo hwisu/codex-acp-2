@@ -11,6 +11,9 @@ pub(crate) mod meta {
     pub(crate) const TERMINAL_INFO: &str = "terminal_info";
     pub(crate) const TERMINAL_OUTPUT: &str = "terminal_output";
     pub(crate) const TERMINAL_EXIT: &str = "terminal_exit";
+    pub(crate) const GOAL: &str = "goal";
+    pub(crate) const GOAL_CONTROL_METHOD: &str = "_session/goal";
+    pub(crate) const STEERING: &str = "steering";
 }
 
 pub(crate) mod permission_option {
@@ -59,6 +62,7 @@ mod tests {
         assert_eq!(meta::TERMINAL_OUTPUT, "terminal_output");
         assert_eq!(meta::TERMINAL_EXIT, "terminal_exit");
         assert_eq!(meta::TOOL_CALL_OUTPUT_INITIALLY_FOLDED, "initiallyFolded");
+        assert_eq!(meta::GOAL_CONTROL_METHOD, "_session/goal");
 
         assert_eq!(permission_option::APPROVED, "approved");
         assert_eq!(

@@ -60,6 +60,7 @@ pub(crate) struct LiveReasoningContentDeltaEvent {
 
 pub(crate) struct ActorEventPlan {
     pub(crate) state_updates: Vec<ActorStateUpdate>,
+    pub(crate) goal_snapshot: Option<ThreadGoal>,
     pub(crate) action: ActorEventAction,
 }
 
@@ -108,6 +109,20 @@ pub(crate) enum ActorStateUpdate {
     RememberCollabAgent(ActorCollabAgentUpdate),
     RememberCollabAgentEntries(Vec<CollabAgentStatusEntry>),
     RemoveCollabAgent(ThreadId),
+    GoalSnapshot(ThreadGoal),
+}
+
+impl ActorStateUpdate {
+    pub(crate) fn goal_snapshot(&self) -> Option<&ThreadGoal> {
+        match self {
+            Self::GoalSnapshot(goal) => Some(goal),
+            Self::LatestUsage { .. }
+            | Self::CollaborationMode(..)
+            | Self::RememberCollabAgent(..)
+            | Self::RememberCollabAgentEntries(..)
+            | Self::RemoveCollabAgent(..) => None,
+        }
+    }
 }
 
 pub(crate) struct ActorCollabAgentUpdate {

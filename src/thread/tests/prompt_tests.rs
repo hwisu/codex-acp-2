@@ -18,15 +18,111 @@ async fn test_prompt() -> anyhow::Result<()> {
 }
 
 #[tokio::test]
-async fn test_thread_goal_updated_is_sent_as_agent_message() -> anyhow::Result<()> {
+async fn test_thread_goal_updated_is_sent_as_official_goal_metadata() -> anyhow::Result<()> {
     let (session_id, client, _, message_tx, _handle) = setup().await?;
     let stop_reason =
         submit_prompt_and_wait(&session_id, &message_tx, "thread-goal-update").await?;
     assert_eq!(stop_reason, StopReason::EndTurn);
     drop(message_tx);
 
-    assert!(client.has_agent_text(|text| text == "Goal updated (active): Ship the goal update"));
+    assert!(!client.has_agent_text(|text| text.starts_with("Goal updated")));
+    assert!(client.notifications().iter().any(|notification| {
+        matches!(
+            &notification.update,
+            SessionUpdate::SessionInfoUpdate(update)
+                if update.meta.as_ref().and_then(|meta| meta.get("goal"))
+                    == Some(&serde_json::json!({
+                        "objective": "Ship the goal update",
+                        "status": "active",
+                        "tokenBudget": 100,
+                        "tokensUsed": 10,
+                        "timeUsedSeconds": 2,
+                        "createdAt": 1000,
+                        "updatedAt": 2000,
+                        "controlMethod": "_session/goal",
+                    }))
+        )
+    }));
 
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_steering_injects_into_an_active_turn() -> anyhow::Result<()> {
+    let (session_id, _client, thread, mut actor) = setup_actor().await?;
+    thread.mark_active_prompt("turn-1");
+
+    let outcome = actor
+        .handle_steer(PromptRequest::new(
+            session_id,
+            vec![ContentBlock::Text(TextContent::new("keep compatibility"))],
+        ))
+        .await?;
+
+    assert_eq!(outcome, crate::thread::SteeringOutcome::Injected);
+    assert!(matches!(
+        thread.steered_inputs().as_slice(),
+        [inputs]
+            if matches!(inputs.as_slice(), [UserInput::Text { text, .. }] if text == "keep compatibility")
+    ));
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_steering_starts_a_turn_when_idle() -> anyhow::Result<()> {
+    let (session_id, _client, thread, mut actor) = setup_actor().await?;
+
+    let outcome = actor
+        .handle_steer(PromptRequest::new(
+            session_id,
+            vec![ContentBlock::Text(TextContent::new("late input"))],
+        ))
+        .await?;
+
+    assert_eq!(outcome, crate::thread::SteeringOutcome::StartedNewTurn);
+    assert!(matches!(
+        thread.last_op(),
+        Some(Op::UserInput { items, .. })
+            if matches!(items.as_slice(), [UserInput::Text { text, .. }] if text == "late input")
+    ));
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_goal_extension_actions_emit_official_goal_metadata() -> anyhow::Result<()> {
+    let (_session_id, client, thread, mut actor) = setup_actor_with_goals().await?;
+
+    actor
+        .handle_goal_control(crate::thread::GoalControlAction::Set(
+            "Replace the objective".to_string(),
+        ))
+        .await?;
+    actor
+        .handle_goal_control(crate::thread::GoalControlAction::Pause)
+        .await?;
+    actor
+        .handle_goal_control(crate::thread::GoalControlAction::Resume)
+        .await?;
+    actor
+        .handle_goal_control(crate::thread::GoalControlAction::Clear)
+        .await?;
+
+    assert!(thread.thread_goal().is_none());
+    let goal_updates = client
+        .notifications()
+        .into_iter()
+        .filter_map(|notification| match notification.update {
+            SessionUpdate::SessionInfoUpdate(update) => {
+                update.meta.and_then(|meta| meta.get("goal").cloned())
+            }
+            _ => None,
+        })
+        .collect_vec();
+    assert_eq!(goal_updates.len(), 4);
+    assert_eq!(goal_updates[0]["status"], "active");
+    assert_eq!(goal_updates[1]["status"], "paused");
+    assert_eq!(goal_updates[2]["status"], "active");
+    assert_eq!(goal_updates[3], serde_json::Value::Null);
     Ok(())
 }
 
@@ -755,16 +851,20 @@ async fn test_usage_update_includes_token_usage_metadata() -> anyhow::Result<()>
             total_token_usage: codex_protocol::protocol::TokenUsage {
                 input_tokens: 1_500,
                 cached_input_tokens: 250,
+                cache_write_input_tokens: 0,
                 output_tokens: 350,
                 reasoning_output_tokens: 125,
                 total_tokens: 2_000,
+                codex_rollout_budget_units: None,
             },
             last_token_usage: codex_protocol::protocol::TokenUsage {
                 input_tokens: 100,
                 cached_input_tokens: 10,
+                cache_write_input_tokens: 0,
                 output_tokens: 20,
                 reasoning_output_tokens: 5,
                 total_tokens: 120,
+                codex_rollout_budget_units: None,
             },
             model_context_window: Some(128_000),
         }),
@@ -824,9 +924,11 @@ async fn test_status_command_reports_session_state_without_usage_details() -> an
                     total_token_usage: codex_protocol::protocol::TokenUsage {
                         input_tokens: 1_500,
                         cached_input_tokens: 250,
+                        cache_write_input_tokens: 0,
                         output_tokens: 350,
                         reasoning_output_tokens: 125,
                         total_tokens: 48_000,
+                        codex_rollout_budget_units: None,
                     },
                     last_token_usage: codex_protocol::protocol::TokenUsage {
                         total_tokens: 48_000,
@@ -847,6 +949,7 @@ async fn test_status_command_reports_session_state_without_usage_details() -> an
                     plan_type: None,
                     rate_limit_reached_type: None,
                     individual_limit: None,
+                    spend_control_reached: None,
                 }),
             }),
         })
@@ -883,9 +986,11 @@ async fn test_usage_command_reports_usage_summary() -> anyhow::Result<()> {
                     total_token_usage: codex_protocol::protocol::TokenUsage {
                         input_tokens: 800,
                         cached_input_tokens: 0,
+                        cache_write_input_tokens: 0,
                         output_tokens: 200,
                         reasoning_output_tokens: 0,
                         total_tokens: 24_000,
+                        codex_rollout_budget_units: None,
                     },
                     last_token_usage: codex_protocol::protocol::TokenUsage {
                         total_tokens: 24_000,

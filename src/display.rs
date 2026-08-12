@@ -4,28 +4,10 @@ use agent_client_protocol::schema::v1::{
 use codex_protocol::ThreadId;
 use codex_protocol::protocol::{
     AgentStatus, CollabAgentRef, CollabAgentStatusEntry, ImageGenerationEndEvent, ThreadGoal,
-    ThreadGoalStatus, ThreadGoalUpdatedEvent,
+    ThreadGoalStatus,
 };
 
 use itertools::Itertools as _;
-
-pub(crate) fn format_thread_goal_update(event: &ThreadGoalUpdatedEvent) -> String {
-    let status = match event.goal.status {
-        ThreadGoalStatus::Active => "active",
-        ThreadGoalStatus::Paused => "paused",
-        ThreadGoalStatus::Blocked => "blocked",
-        ThreadGoalStatus::UsageLimited => "usage limited",
-        ThreadGoalStatus::BudgetLimited => "budget limited",
-        ThreadGoalStatus::Complete => "complete",
-    };
-
-    let objective = event.goal.objective.trim();
-    if objective.contains('\n') {
-        format!("Goal updated ({status}):\n{objective}")
-    } else {
-        format!("Goal updated ({status}): {objective}")
-    }
-}
 
 pub(crate) fn format_goal_elapsed_seconds(seconds: i64) -> String {
     let seconds = seconds.max(0) as u64;

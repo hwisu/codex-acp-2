@@ -89,6 +89,14 @@ enum ThreadMessage {
         request: PromptRequest,
         response_tx: oneshot::Sender<Result<oneshot::Receiver<Result<StopReason, Error>>, Error>>,
     },
+    Steer {
+        request: PromptRequest,
+        response_tx: oneshot::Sender<Result<SteeringOutcome, Error>>,
+    },
+    ControlGoal {
+        action: GoalControlAction,
+        response_tx: oneshot::Sender<Result<(), Error>>,
+    },
     SetMode {
         mode: SessionModeId,
         response_tx: oneshot::Sender<Result<(), Error>>,
@@ -117,6 +125,22 @@ enum ThreadMessage {
         request_key: String,
         response: Result<RequestPermissionResponse, Error>,
     },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) enum SteeringOutcome {
+    Injected,
+    StartedNewTurn,
+    Failed,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum GoalControlAction {
+    Set(String),
+    Pause,
+    Resume,
+    Clear,
 }
 
 pub struct Thread {
@@ -208,6 +232,22 @@ impl Thread {
         .await?
         .await
         .map_err(|_| thread_actor_not_running_error())?
+    }
+
+    pub async fn steer(&self, request: PromptRequest) -> Result<SteeringOutcome, Error> {
+        self.request_actor(|response_tx| ThreadMessage::Steer {
+            request,
+            response_tx,
+        })
+        .await
+    }
+
+    pub async fn control_goal(&self, action: GoalControlAction) -> Result<(), Error> {
+        self.request_actor(|response_tx| ThreadMessage::ControlGoal {
+            action,
+            response_tx,
+        })
+        .await
     }
 
     pub async fn set_mode(&self, mode: SessionModeId) -> Result<(), Error> {

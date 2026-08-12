@@ -91,6 +91,7 @@ impl PromptState {
             completed_at: _,
             duration_ms: _,
             time_to_first_token_ms: _,
+            ..
         }: TurnCompleteEvent,
     ) {
         info!(
@@ -122,6 +123,7 @@ impl PromptState {
             turn_id,
             completed_at: _,
             duration_ms: _,
+            ..
         }: TurnAbortedEvent,
     ) {
         info!("Turn {turn_id:?} aborted: {reason:?}");

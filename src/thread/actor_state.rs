@@ -3,7 +3,9 @@ use std::collections::HashMap;
 use agent_client_protocol::schema::v1::SessionConfigOption;
 use codex_protocol::{
     ThreadId,
-    protocol::{AgentStatus, CollabAgentStatusEntry, RateLimitSnapshot, TokenUsageInfo},
+    protocol::{
+        AgentStatus, CollabAgentStatusEntry, RateLimitSnapshot, ThreadGoal, TokenUsageInfo,
+    },
 };
 
 use crate::{
@@ -36,6 +38,7 @@ pub(super) struct ActorState {
     known_collab_agents: HashMap<ThreadId, CollabAgentStatusEntry>,
     pending_user_input: Option<PendingUserInputRequest>,
     latest_usage: UsageSnapshot,
+    current_goal: Option<ThreadGoal>,
 }
 
 impl ActorState {
@@ -60,6 +63,18 @@ impl ActorState {
 
     pub(super) fn latest_usage(&self) -> &UsageSnapshot {
         &self.latest_usage
+    }
+
+    pub(super) fn update_goal(&mut self, goal: Option<ThreadGoal>) -> bool {
+        if self.current_goal == goal {
+            return false;
+        }
+        self.current_goal = goal;
+        true
+    }
+
+    pub(super) fn is_current_goal(&self, goal: &ThreadGoal) -> bool {
+        self.current_goal.as_ref() == Some(goal)
     }
 
     pub(super) fn set_collaboration_mode_kind(
@@ -193,6 +208,9 @@ impl ActorState {
             }
             ActorStateUpdate::RemoveCollabAgent(thread_id) => {
                 self.remove_collab_agent(&thread_id);
+            }
+            ActorStateUpdate::GoalSnapshot(goal) => {
+                self.update_goal(Some(goal));
             }
         }
     }

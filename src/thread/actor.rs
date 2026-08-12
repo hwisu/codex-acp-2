@@ -163,6 +163,20 @@ impl<A: Auth> ThreadActor<A> {
                 let result = self.handle_prompt(request).await;
                 send_actor_response(response_tx, result);
             }
+            ThreadMessage::Steer {
+                request,
+                response_tx,
+            } => {
+                let result = self.handle_steer(request).await;
+                send_actor_response(response_tx, result);
+            }
+            ThreadMessage::ControlGoal {
+                action,
+                response_tx,
+            } => {
+                let result = self.handle_goal_control(action).await;
+                send_actor_response(response_tx, result);
+            }
             ThreadMessage::SetMode { mode, response_tx } => {
                 let result = self.handle_set_mode(mode).await;
                 send_actor_response(response_tx, result);
@@ -241,6 +255,11 @@ impl<A: Auth> ThreadActor<A> {
 
     pub(super) async fn handle_event(&mut self, Event { id, msg }: Event) {
         let plan = mapper::plan_actor_event(&msg);
+        if let Some(goal) = plan.goal_snapshot.as_ref()
+            && self.state.is_current_goal(goal)
+        {
+            return;
+        }
         self.state.apply_event_updates(plan.state_updates);
 
         let (bridge_effect, clear_pending_user_input, full_access_auto_approval) = match plan.action

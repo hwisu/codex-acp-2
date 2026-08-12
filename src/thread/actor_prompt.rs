@@ -3,6 +3,7 @@ use agent_client_protocol::{
     Error,
     schema::v1::{ContentBlock, PromptRequest, StopReason},
 };
+use codex_core::SteerInputError;
 use codex_protocol::{request_user_input::RequestUserInputEvent, user_input::UserInput};
 use itertools::Itertools;
 use tokio::sync::oneshot;
@@ -16,6 +17,7 @@ use crate::{
 };
 
 use super::{
+    SteeringOutcome,
     deps::Auth,
     prompt_items::build_prompt_items,
     slash_commands::PromptSubmission,
@@ -23,6 +25,36 @@ use super::{
 };
 
 impl<A: Auth> ThreadActor<A> {
+    pub(super) async fn handle_steer(
+        &mut self,
+        request: PromptRequest,
+    ) -> Result<SteeringOutcome, Error> {
+        if request.prompt.is_empty() {
+            return Err(Error::invalid_params().data("steering prompt must not be empty"));
+        }
+        let items = build_prompt_items(request.prompt.clone(), Some(self.config.cwd.as_path()));
+        if items.is_empty() {
+            return Err(Error::invalid_params().data("steering prompt has no supported content"));
+        }
+
+        match self.thread.steer_input(items).await {
+            Ok(_) => Ok(SteeringOutcome::Injected),
+            Err(SteerInputError::NoActiveTurn(_)) => {
+                let response = self.handle_prompt(request).await?;
+                tokio::spawn(async move {
+                    if let Ok(Err(err)) = response.await {
+                        tracing::warn!("steering-started turn failed: {err:?}");
+                    }
+                });
+                Ok(SteeringOutcome::StartedNewTurn)
+            }
+            Err(err) => {
+                tracing::warn!("unable to steer active turn: {err:?}");
+                Ok(SteeringOutcome::Failed)
+            }
+        }
+    }
+
     pub(super) fn prompt_request_text(prompt: Vec<ContentBlock>) -> String {
         build_prompt_items(prompt, None)
             .into_iter()

@@ -32,7 +32,10 @@ async fn test_exec_approval_uses_available_decisions() -> anyhow::Result<()> {
             vec![ParsedCommand::Unknown {
                 cmd: "echo hi".to_string(),
             }],
-            Some(vec![ReviewDecision::Approved, ReviewDecision::Denied]),
+            Some(vec![
+                ReviewDecision::Approved,
+                ReviewDecision::denied("rejected by user"),
+            ]),
         ),
     )?;
 
@@ -70,7 +73,7 @@ async fn test_exec_approval_uses_available_decisions() -> anyhow::Result<()> {
         Some(Op::ExecApproval {
             id,
             turn_id,
-            decision: ReviewDecision::Denied,
+            decision: ReviewDecision::Denied { .. },
         }) if id == "approval-id" && turn_id.as_deref() == Some("turn-id")
     ));
 
@@ -146,7 +149,7 @@ async fn test_patch_rejection_denies_without_cancelling_turn() -> anyhow::Result
         ops.last(),
         Some(Op::PatchApproval {
             id,
-            decision: ReviewDecision::Denied,
+            decision: ReviewDecision::Denied { .. },
         }) if id == "patch-call"
     ));
 
@@ -391,9 +394,10 @@ async fn test_thread_shutdown_bypasses_blocked_permission_request() -> anyhow::R
     );
     let conversation = Arc::new(StubCodexThread::new());
     let models_manager = Arc::new(StubModelsManager);
-    let config =
-        Config::load_with_cli_overrides_and_harness_overrides(vec![], ConfigOverrides::default())
-            .await?;
+    let mut config = load_test_config().await?;
+    config
+        .permissions
+        .set_permission_profile(PermissionProfile::workspace_write())?;
     let (message_tx, message_rx) = tokio::sync::mpsc::unbounded_channel();
     let (resolution_tx, resolution_rx) = tokio::sync::mpsc::unbounded_channel();
     let actor = ThreadActor::new(ThreadActorInit {

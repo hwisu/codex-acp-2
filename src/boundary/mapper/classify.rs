@@ -83,7 +83,10 @@ pub(crate) fn classify_event_msg(
             BridgeEventContext::Replay => Forward,
         },
 
-        EventMsg::TurnStarted(..) | EventMsg::ThreadSettingsApplied(..) => Ignore(StateOnly),
+        EventMsg::TurnStarted(..)
+        | EventMsg::ThreadSettingsApplied(..)
+        | EventMsg::EnvironmentConnected(..)
+        | EventMsg::EnvironmentDisconnected(..) => Ignore(StateOnly),
         EventMsg::TurnAborted(TurnAbortedEvent { turn_id: None, .. }) => Ignore(LifecycleOnly),
         EventMsg::ItemStarted(..) | EventMsg::ItemCompleted(..) => Ignore(LifecycleOnly),
         EventMsg::SessionConfigured(..) => Ignore(LifecycleOnly),
@@ -93,6 +96,7 @@ pub(crate) fn classify_event_msg(
         | EventMsg::ModelVerification(..)
         | EventMsg::TurnModerationMetadata(..)
         | EventMsg::SafetyBuffering(..)
+        | EventMsg::RawResponseCompleted(..)
         | EventMsg::StreamError(..)
         | EventMsg::DeprecationNotice(..) => Ignore(DiagnosticOnly),
         EventMsg::EnteredReviewMode(..) => Ignore(StateOnly),

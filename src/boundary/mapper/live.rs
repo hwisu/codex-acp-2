@@ -52,6 +52,14 @@ pub(crate) fn route_live_event(event: EventMsg) -> LiveEventRoute {
             event: EventMsg::TurnModerationMetadata(event),
             reason: DiagnosticOnly,
         },
+        EventMsg::EnvironmentConnected(event) => Ignore {
+            event: EventMsg::EnvironmentConnected(event),
+            reason: StateOnly,
+        },
+        EventMsg::EnvironmentDisconnected(event) => Ignore {
+            event: EventMsg::EnvironmentDisconnected(event),
+            reason: StateOnly,
+        },
         EventMsg::ContextCompacted(_event) => effect_route(session_update::context_compacted()),
         EventMsg::ThreadRolledBack(event) => {
             effect_route(session_update::thread_rolled_back(event))
@@ -232,6 +240,10 @@ pub(crate) fn route_live_event(event: EventMsg) -> LiveEventRoute {
         EventMsg::RawResponseItem(event) => Ignore {
             event: EventMsg::RawResponseItem(event),
             reason: HandledByResponseItem,
+        },
+        EventMsg::RawResponseCompleted(event) => Ignore {
+            event: EventMsg::RawResponseCompleted(event),
+            reason: DiagnosticOnly,
         },
         EventMsg::ItemStarted(event) => Ignore {
             event: EventMsg::ItemStarted(event),

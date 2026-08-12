@@ -122,14 +122,14 @@ pub(crate) fn build_exec_permission_options(
                     },
                 }
             }
-            ReviewDecision::Denied => ExecPermissionOption {
+            ReviewDecision::Denied { .. } => ExecPermissionOption {
                 option_id: permission_option::DENIED,
                 permission_option: PermissionOption::new(
                     permission_option::DENIED,
                     "No, continue without running it",
                     PermissionOptionKind::RejectOnce,
                 ),
-                decision: ReviewDecision::Denied,
+                decision: decision.clone(),
             },
             ReviewDecision::Abort => ExecPermissionOption {
                 option_id: permission_option::ABORT,
@@ -207,6 +207,8 @@ pub(crate) fn exec_approval_interaction(
         proposed_network_policy_amendments: _,
         environment_id: _,
         started_at_ms: _,
+        plugin_id: _,
+        script_path: _,
     } = event;
 
     let cwd_path = cwd.to_path_buf();
@@ -292,7 +294,7 @@ pub(crate) fn patch_approval_interaction(
             ),
             (
                 permission_option::DENIED.to_string(),
-                ReviewDecision::Denied,
+                ReviewDecision::denied("rejected by user"),
             ),
         ]),
         permission_request: PermissionRequestSeed::new(
@@ -517,7 +519,10 @@ mod tests {
             vec![ParsedCommand::Unknown {
                 cmd: "echo hi".to_string(),
             }],
-            Some(vec![ReviewDecision::Approved, ReviewDecision::Denied]),
+            Some(vec![
+                ReviewDecision::Approved,
+                ReviewDecision::denied("rejected by user"),
+            ]),
         );
         event.reason = Some("Need to run command".to_string());
         let interaction = exec_approval_interaction(event)?;

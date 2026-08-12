@@ -1,8 +1,8 @@
 use std::sync::LazyLock;
 
 use agent_client_protocol::schema::v1::SessionModeId;
-use codex_core::config::Config;
-use codex_protocol::models::PermissionProfile;
+use codex_core::config::{Config, PermissionProfileSnapshot};
+use codex_protocol::models::{ActivePermissionProfile, PermissionProfile};
 use codex_utils_approval_presets::ApprovalPreset;
 
 pub(crate) static APPROVAL_PRESETS: LazyLock<Vec<ApprovalPreset>> =
@@ -102,4 +102,37 @@ pub(crate) fn current_session_mode_id(config: &Config) -> Option<SessionModeId> 
 
 pub(crate) fn mode_trusts_project(mode_id: &str) -> bool {
     matches!(mode_id, "auto" | "full-access")
+}
+
+pub(crate) fn approval_preset_id_for_agent_mode(mode_id: &str) -> Option<&'static str> {
+    match mode_id.trim() {
+        "read-only" | "readonly" | "read_only" => Some("read-only"),
+        "agent" | "auto" | "workspace" => Some("auto"),
+        "agent-full-access" | "full-access" | "fullaccess" | "danger" => Some("full-access"),
+        _ => None,
+    }
+}
+
+pub(crate) fn apply_initial_agent_mode_from_env(config: &mut Config) -> anyhow::Result<bool> {
+    let Ok(mode_id) = std::env::var("INITIAL_AGENT_MODE") else {
+        return Ok(false);
+    };
+    let Some(preset_id) = approval_preset_id_for_agent_mode(&mode_id) else {
+        return Ok(false);
+    };
+    let preset = APPROVAL_PRESETS
+        .iter()
+        .find(|preset| preset.id == preset_id)
+        .ok_or_else(|| anyhow::anyhow!("missing approval preset for INITIAL_AGENT_MODE"))?;
+
+    config.permissions.approval_policy.set(preset.approval)?;
+    config
+        .permissions
+        .set_permission_profile_from_session_snapshot(
+            PermissionProfileSnapshot::from_session_snapshot(
+                preset.permission_profile.clone(),
+                active_profile_id_for_session_mode(preset.id).map(ActivePermissionProfile::new),
+            ),
+        )?;
+    Ok(true)
 }

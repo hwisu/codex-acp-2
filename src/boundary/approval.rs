@@ -180,7 +180,7 @@ mod tests {
             selected(permission_option::DENIED),
             &HashMap::from([(
                 permission_option::DENIED.to_string(),
-                ReviewDecision::Denied,
+                ReviewDecision::denied("rejected by user"),
             )]),
         );
 
@@ -189,7 +189,7 @@ mod tests {
             Op::ExecApproval {
                 id,
                 turn_id,
-                decision: ReviewDecision::Denied,
+                decision: ReviewDecision::Denied { .. },
             } if id == "approval-id" && turn_id.as_deref() == Some("turn-id")
         ));
     }

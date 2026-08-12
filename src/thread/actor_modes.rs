@@ -123,7 +123,7 @@ impl<A: Auth> ThreadActor<A> {
 
 fn collaboration_mode_id(kind: ModeKind) -> SessionModeId {
     SessionModeId::new(match kind {
-        ModeKind::Default | ModeKind::PairProgramming | ModeKind::Execute => "default",
+        ModeKind::Default => "default",
         ModeKind::Plan => "plan",
     })
 }

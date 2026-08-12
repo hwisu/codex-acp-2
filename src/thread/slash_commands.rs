@@ -12,7 +12,7 @@ use codex_protocol::{
 };
 
 use crate::{
-    boundary::op,
+    boundary::{op, session_update},
     display::{
         format_thread_goal_status_label, format_thread_goal_summary,
         format_thread_goal_usage_summary,
@@ -20,7 +20,7 @@ use crate::{
 };
 
 use super::{
-    INIT_COMMAND_PROMPT,
+    GoalControlAction, INIT_COMMAND_PROMPT,
     actor::ThreadActor,
     deps::{Auth, ThreadGoalSetRequest},
     prompt_items::{extract_slash_command, replace_first_text_item},
@@ -35,6 +35,61 @@ pub(super) enum PromptSubmission {
 }
 
 impl<A: Auth> ThreadActor<A> {
+    pub(super) async fn handle_goal_control(
+        &mut self,
+        action: GoalControlAction,
+    ) -> Result<(), Error> {
+        if !self.goals_enabled() {
+            return Err(Error::invalid_params().data("goals feature is disabled"));
+        }
+
+        let goal = match action {
+            GoalControlAction::Set(objective) => Some(
+                self.thread
+                    .thread_goal_set(
+                        self.thread_id,
+                        ThreadGoalSetRequest {
+                            objective: Some(objective),
+                            status: Some(ThreadGoalStatus::Active),
+                            ..ThreadGoalSetRequest::default()
+                        },
+                    )
+                    .await?,
+            ),
+            GoalControlAction::Pause => Some(
+                self.thread
+                    .thread_goal_set(
+                        self.thread_id,
+                        ThreadGoalSetRequest {
+                            status: Some(ThreadGoalStatus::Paused),
+                            ..ThreadGoalSetRequest::default()
+                        },
+                    )
+                    .await?,
+            ),
+            GoalControlAction::Resume => Some(
+                self.thread
+                    .thread_goal_set(
+                        self.thread_id,
+                        ThreadGoalSetRequest {
+                            status: Some(ThreadGoalStatus::Active),
+                            ..ThreadGoalSetRequest::default()
+                        },
+                    )
+                    .await?,
+            ),
+            GoalControlAction::Clear => {
+                self.thread.thread_goal_clear(self.thread_id).await?;
+                None
+            }
+        };
+
+        if self.state.update_goal(goal.clone()) {
+            self.execute_actor_effect(session_update::thread_goal_effect(goal.as_ref()));
+        }
+        Ok(())
+    }
+
     pub(super) fn available_commands(&self) -> Vec<AvailableCommand> {
         Self::builtin_commands(self.goals_enabled(), self.fast_mode_configurable())
     }

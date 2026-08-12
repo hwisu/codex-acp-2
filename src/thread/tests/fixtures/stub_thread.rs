@@ -18,6 +18,7 @@ pub(in crate::thread::tests) struct StubCodexThread {
     current_id: AtomicUsize,
     active_prompt_id: std::sync::Mutex<Option<String>>,
     ops: std::sync::Mutex<Vec<Op>>,
+    steered_inputs: std::sync::Mutex<Vec<Vec<UserInput>>>,
     thread_goal: std::sync::Mutex<Option<ThreadGoal>>,
     op_tx: mpsc::UnboundedSender<Event>,
     op_rx: Mutex<mpsc::UnboundedReceiver<Event>>,
@@ -30,6 +31,7 @@ impl StubCodexThread {
             current_id: AtomicUsize::new(0),
             active_prompt_id: std::sync::Mutex::default(),
             ops: std::sync::Mutex::default(),
+            steered_inputs: std::sync::Mutex::default(),
             thread_goal: std::sync::Mutex::default(),
             op_tx,
             op_rx: Mutex::new(op_rx),
@@ -51,6 +53,8 @@ impl StubCodexThread {
             EventMsg::TurnComplete(TurnCompleteEvent {
                 last_agent_message: None,
                 turn_id,
+                error: None,
+                started_at: None,
                 completed_at: None,
                 duration_ms: None,
                 time_to_first_token_ms: None,
@@ -64,6 +68,17 @@ impl StubCodexThread {
 
     pub(in crate::thread::tests) fn last_op(&self) -> Option<Op> {
         self.lock_ops().last().cloned()
+    }
+
+    pub(in crate::thread::tests) fn mark_active_prompt(&self, id: impl Into<String>) {
+        *self.lock_active_prompt_id() = Some(id.into());
+    }
+
+    pub(in crate::thread::tests) fn steered_inputs(&self) -> Vec<Vec<UserInput>> {
+        self.steered_inputs
+            .lock()
+            .expect("stub steered inputs mutex should not be poisoned")
+            .clone()
     }
 
     pub(in crate::thread::tests) fn thread_goal(&self) -> Option<ThreadGoal> {
@@ -192,6 +207,7 @@ impl StubCodexThread {
             EventMsg::RequestUserInput(RequestUserInputEvent {
                 call_id: "user-input-call".to_string(),
                 turn_id: id.to_string(),
+                is_blocking: true,
                 auto_resolution_ms: None,
                 questions: vec![RequestUserInputQuestion {
                     id: "confirm_path".to_string(),
@@ -220,6 +236,7 @@ impl StubCodexThread {
             EventMsg::RequestUserInput(RequestUserInputEvent {
                 call_id: "user-input-multi".to_string(),
                 turn_id: id.to_string(),
+                is_blocking: true,
                 auto_resolution_ms: None,
                 questions: vec![
                     RequestUserInputQuestion {
@@ -267,6 +284,7 @@ impl StubCodexThread {
                 status: "completed".to_string(),
                 revised_prompt: Some("Render a parity diagram".to_string()),
                 result: String::new(),
+                transparent_background: None,
                 saved_path: Some(saved_path),
             }),
         );
@@ -494,6 +512,7 @@ impl CodexThreadImpl for StubCodexThread {
                             EventMsg::TurnAborted(TurnAbortedEvent {
                                 turn_id: Some(active_prompt_id),
                                 reason: codex_protocol::protocol::TurnAbortReason::Interrupted,
+                                started_at: None,
                                 completed_at: None,
                                 duration_ms: None,
                             }),
@@ -514,6 +533,22 @@ impl CodexThreadImpl for StubCodexThread {
                 return Err(CodexErr::InternalAgentDied);
             };
             Ok(event)
+        })
+    }
+
+    fn steer_input(
+        &self,
+        input: Vec<UserInput>,
+    ) -> Pin<Box<dyn Future<Output = Result<String, SteerInputError>> + Send + '_>> {
+        Box::pin(async move {
+            let Some(active_prompt_id) = self.lock_active_prompt_id().clone() else {
+                return Err(SteerInputError::NoActiveTurn(input));
+            };
+            self.steered_inputs
+                .lock()
+                .expect("stub steered inputs mutex should not be poisoned")
+                .push(input);
+            Ok(active_prompt_id)
         })
     }
 

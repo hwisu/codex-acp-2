@@ -100,6 +100,7 @@ fn route_replay_event_action(event: &EventMsg) -> ReplayEventAction<'_> {
         | EventMsg::ModelVerification(..)
         | EventMsg::TurnModerationMetadata(..)
         | EventMsg::SafetyBuffering(..)
+        | EventMsg::RawResponseCompleted(..)
         | EventMsg::StreamError(..)
         | EventMsg::DeprecationNotice(..) => ReplayEventAction::Ignore {
             event,
@@ -139,6 +140,8 @@ fn route_replay_event_action(event: &EventMsg) -> ReplayEventAction<'_> {
         },
         EventMsg::TurnStarted(..)
         | EventMsg::ThreadSettingsApplied(..)
+        | EventMsg::EnvironmentConnected(..)
+        | EventMsg::EnvironmentDisconnected(..)
         | EventMsg::SessionConfigured(..)
         | EventMsg::EnteredReviewMode(..)
         | EventMsg::ContextCompacted(..)

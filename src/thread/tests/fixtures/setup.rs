@@ -92,13 +92,26 @@ pub(in crate::thread::tests) async fn setup_actor_with_fast_mode() -> anyhow::Re
     setup_actor_with_config(configure_fast_mode).await
 }
 
+pub(in crate::thread::tests) async fn setup_actor_with_goals() -> anyhow::Result<(
+    SessionId,
+    Arc<StubClient>,
+    Arc<StubCodexThread>,
+    ThreadActor<StubAuth>,
+)> {
+    setup_actor_with_config(|config| {
+        config.features.enable(Feature::Goals)?;
+        Ok(())
+    })
+    .await
+}
+
 fn configure_fast_mode(config: &mut Config) -> anyhow::Result<()> {
     config.features.enable(Feature::FastMode)?;
     config.service_tier = None;
     Ok(())
 }
 
-async fn load_test_config() -> anyhow::Result<Config> {
+pub(in crate::thread::tests) async fn load_test_config() -> anyhow::Result<Config> {
     let path = std::env::temp_dir().join(format!("codex-acp-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&path)?;
     Ok(ConfigBuilder::default()

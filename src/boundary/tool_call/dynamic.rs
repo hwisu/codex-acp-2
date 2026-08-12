@@ -73,6 +73,11 @@ fn dynamic_tool_call_content(
                     ResourceLink::new(image_url.clone(), image_url),
                 )))
             }
+            DynamicToolCallOutputContentItem::InputAudio { audio_url } => {
+                ToolCallContent::Content(Content::new(ContentBlock::ResourceLink(
+                    ResourceLink::new(audio_url.clone(), audio_url),
+                )))
+            }
         })
         .chain(error.map(|e| ToolCallContent::Content(Content::new(e))))
         .collect()

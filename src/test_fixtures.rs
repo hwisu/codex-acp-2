@@ -28,6 +28,8 @@ pub(crate) fn exec_command_begin(
 ) -> ExecCommandBeginEvent {
     ExecCommandBeginEvent {
         call_id: call_id.into(),
+        plugin_id: None,
+        script_path: None,
         process_id: None,
         turn_id: turn_id.into(),
         started_at_ms: 0,
@@ -49,6 +51,8 @@ pub(crate) fn exec_command_end(
     let stdout = stdout.into();
     ExecCommandEndEvent {
         call_id: call_id.into(),
+        plugin_id: None,
+        script_path: None,
         process_id: None,
         turn_id: turn_id.into(),
         completed_at_ms: 0,
@@ -77,6 +81,8 @@ pub(crate) fn exec_approval_request(
 ) -> ExecApprovalRequestEvent {
     ExecApprovalRequestEvent {
         call_id: call_id.into(),
+        plugin_id: None,
+        script_path: None,
         approval_id: Some("approval-id".to_string()),
         turn_id: turn_id.into(),
         environment_id: None,

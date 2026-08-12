@@ -33,8 +33,8 @@ fn model_filter_keeps_gpt_5_3_and_newer_high_efforts() {
         .collect::<Vec<_>>();
 
     assert!(ids.contains(&"gpt-5.5"));
-    assert!(ids.contains(&"gpt-5.4"));
     assert!(ids.contains(&"gpt-5.6-sol"));
+    assert!(!ids.contains(&"gpt-5.4"));
     assert!(!ids.contains(&"gpt-5.2"));
     assert!(
         presets
@@ -331,6 +331,37 @@ async fn legacy_full_access_session_mode_alias_is_canonicalized() -> anyhow::Res
     Ok(())
 }
 
+#[tokio::test]
+async fn official_agent_mode_aliases_apply_approval_presets() -> anyhow::Result<()> {
+    let (_, _, thread, mut actor) = setup_actor().await?;
+
+    actor.handle_set_mode(SessionModeId::new("agent")).await?;
+    actor
+        .handle_set_mode(SessionModeId::new("agent-full-access"))
+        .await?;
+
+    let ops = thread.ops();
+    assert!(matches!(
+        ops.as_slice(),
+        [
+            Op::ThreadSettings {
+                thread_settings: ThreadSettingsOverrides {
+                    permission_profile: Some(PermissionProfile::Managed { .. }),
+                    ..
+                },
+            },
+            Op::ThreadSettings {
+                thread_settings: ThreadSettingsOverrides {
+                    permission_profile: Some(PermissionProfile::Disabled),
+                    ..
+                },
+            },
+        ]
+    ));
+
+    Ok(())
+}
+
 #[test]
 fn test_guardian_execve_summary_uses_argv_without_duplication() -> anyhow::Result<()> {
     let action = GuardianAssessmentAction::Execve {
@@ -410,6 +441,8 @@ fn guardian_assessment_content_includes_action_risk_and_rationale() {
     let event = GuardianAssessmentEvent {
         id: "guardian-1".to_string(),
         target_item_id: None,
+        plugin_id: None,
+        script_path: None,
         turn_id: "turn-1".to_string(),
         status: GuardianAssessmentStatus::Denied,
         started_at_ms: 0,
@@ -505,7 +538,7 @@ async fn setting_reasoning_effort_sends_effort_without_model_override() -> anyho
         .handle_set_config_option(
             SessionConfigId::new("model"),
             SessionConfigOptionValue::ValueId {
-                value: SessionConfigValueId::new("gpt-5.4"),
+                value: SessionConfigValueId::new("gpt-5.5"),
             },
         )
         .await?;
@@ -537,7 +570,7 @@ async fn setting_reasoning_effort_sends_effort_without_model_override() -> anyho
                     ..
                 },
             },
-        ] if model == "gpt-5.4"
+        ] if model == "gpt-5.5"
     ));
 
     Ok(())

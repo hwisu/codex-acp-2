@@ -4,8 +4,8 @@ mod stub_thread;
 mod test_deps;
 
 pub(super) use setup::{
-    setup, setup_actor, setup_actor_with_fast_mode, setup_with_fast_mode, setup_with_goals,
-    submit_prompt, submit_prompt_and_wait,
+    load_test_config, setup, setup_actor, setup_actor_with_fast_mode, setup_actor_with_goals,
+    setup_with_fast_mode, setup_with_goals, submit_prompt, submit_prompt_and_wait,
 };
 pub(super) use stub_client::StubClient;
 pub(super) use stub_thread::StubCodexThread;
@@ -33,6 +33,7 @@ pub(super) use agent_client_protocol::{
 };
 pub(super) use codex_config::LoaderOverrides;
 pub(super) use codex_core::{
+    SteerInputError,
     config::{Config, ConfigBuilder, ConfigOverrides, PermissionProfileSnapshot},
     review_prompts::user_facing_hint,
     test_support::all_model_presets,

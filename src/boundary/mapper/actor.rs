@@ -5,8 +5,14 @@ use crate::boundary::effect::BridgeEventContext;
 use super::{classify_event_msg, types::*};
 
 pub(crate) fn plan_actor_event(event: &EventMsg) -> ActorEventPlan {
+    let state_updates = actor_state_updates(event);
+    let goal_snapshot = state_updates
+        .iter()
+        .find_map(ActorStateUpdate::goal_snapshot)
+        .cloned();
     ActorEventPlan {
-        state_updates: actor_state_updates(event),
+        state_updates,
+        goal_snapshot,
         action: route_actor_event(event),
     }
 }
@@ -51,6 +57,8 @@ fn route_actor_event(msg: &EventMsg) -> ActorEventAction {
         | EventMsg::RealtimeConversationSdp(..)
         | EventMsg::ModelReroute(..)
         | EventMsg::ModelVerification(..)
+        | EventMsg::EnvironmentConnected(..)
+        | EventMsg::EnvironmentDisconnected(..)
         | EventMsg::TurnModerationMetadata(..)
         | EventMsg::SafetyBuffering(..)
         | EventMsg::ContextCompacted(..)
@@ -94,6 +102,7 @@ fn route_actor_event(msg: &EventMsg) -> ActorEventAction {
         | EventMsg::EnteredReviewMode(..)
         | EventMsg::ExitedReviewMode(..)
         | EventMsg::RawResponseItem(..)
+        | EventMsg::RawResponseCompleted(..)
         | EventMsg::ItemStarted(..)
         | EventMsg::ItemCompleted(..)
         | EventMsg::HookStarted(..)
@@ -137,6 +146,9 @@ pub(crate) fn actor_state_updates(event: &EventMsg) -> Vec<ActorStateUpdate> {
         EventMsg::TurnStarted(event) => vec![ActorStateUpdate::CollaborationMode(
             event.collaboration_mode_kind,
         )],
+        EventMsg::ThreadGoalUpdated(event) => {
+            vec![ActorStateUpdate::GoalSnapshot(event.goal.clone())]
+        }
         EventMsg::CollabAgentSpawnEnd(event) => event
             .new_thread_id
             .as_ref()
@@ -206,6 +218,8 @@ pub(crate) fn actor_state_updates(event: &EventMsg) -> Vec<ActorStateUpdate> {
         | EventMsg::RealtimeConversationSdp(..)
         | EventMsg::ModelReroute(..)
         | EventMsg::ModelVerification(..)
+        | EventMsg::EnvironmentConnected(..)
+        | EventMsg::EnvironmentDisconnected(..)
         | EventMsg::TurnModerationMetadata(..)
         | EventMsg::SafetyBuffering(..)
         | EventMsg::ContextCompacted(..)
@@ -218,7 +232,6 @@ pub(crate) fn actor_state_updates(event: &EventMsg) -> Vec<ActorStateUpdate> {
         | EventMsg::AgentReasoningRawContent(..)
         | EventMsg::AgentReasoningSectionBreak(..)
         | EventMsg::SessionConfigured(..)
-        | EventMsg::ThreadGoalUpdated(..)
         | EventMsg::McpStartupUpdate(..)
         | EventMsg::McpStartupComplete(..)
         | EventMsg::McpToolCallBegin(..)
@@ -253,6 +266,7 @@ pub(crate) fn actor_state_updates(event: &EventMsg) -> Vec<ActorStateUpdate> {
         | EventMsg::EnteredReviewMode(..)
         | EventMsg::ExitedReviewMode(..)
         | EventMsg::RawResponseItem(..)
+        | EventMsg::RawResponseCompleted(..)
         | EventMsg::ItemStarted(..)
         | EventMsg::ItemCompleted(..)
         | EventMsg::HookStarted(..)

@@ -5,7 +5,7 @@ use std::{
 };
 
 use agent_client_protocol::Error;
-use codex_core::{CodexThread, config::Config};
+use codex_core::{CodexThread, SteerInputError, config::Config};
 use codex_features::Feature;
 use codex_goal_extension::{
     GoalObjectiveUpdate, GoalService, GoalServiceError, GoalSetRequest as CodexGoalSetRequest,
@@ -18,6 +18,7 @@ use codex_protocol::{
     error::CodexErr,
     openai_models::ModelPreset,
     protocol::{Event, Op, ThreadGoal, ThreadGoalStatus},
+    user_input::UserInput,
 };
 
 static GOAL_SERVICE: LazyLock<Arc<GoalService>> = LazyLock::new(|| Arc::new(GoalService::new()));
@@ -38,6 +39,12 @@ pub trait CodexThreadImpl: Send + Sync {
     fn submit(&self, op: Op)
     -> Pin<Box<dyn Future<Output = Result<String, CodexErr>> + Send + '_>>;
     fn next_event(&self) -> Pin<Box<dyn Future<Output = Result<Event, CodexErr>> + Send + '_>>;
+    fn steer_input(
+        &self,
+        input: Vec<UserInput>,
+    ) -> Pin<Box<dyn Future<Output = Result<String, SteerInputError>> + Send + '_>> {
+        Box::pin(async { Err(SteerInputError::NoActiveTurn(input)) })
+    }
     fn thread_goal_get(
         &self,
         _thread_id: ThreadId,
@@ -80,6 +87,13 @@ impl CodexThreadImpl for CodexThread {
 
     fn next_event(&self) -> Pin<Box<dyn Future<Output = Result<Event, CodexErr>> + Send + '_>> {
         Box::pin(self.next_event())
+    }
+
+    fn steer_input(
+        &self,
+        input: Vec<UserInput>,
+    ) -> Pin<Box<dyn Future<Output = Result<String, SteerInputError>> + Send + '_>> {
+        Box::pin(self.steer_input(input, Default::default(), None, None, None))
     }
 
     fn thread_goal_get(

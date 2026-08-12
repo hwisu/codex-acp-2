@@ -6,19 +6,14 @@ use itertools::Itertools;
 
 use crate::{
     display::{format_collab_status_entry, format_token_count_compact},
-    session_mode::{APPROVAL_PRESETS, current_session_mode_id},
+    session_mode::{APPROVAL_PRESETS, approval_preset_id_for_agent_mode, current_session_mode_id},
 };
 
 use super::deps::Auth;
 
 impl<A: Auth> ThreadActor<A> {
     pub(super) fn permission_preset_from_arg(input: &str) -> Option<&'static str> {
-        match input.trim() {
-            "read-only" | "readonly" | "read_only" => Some("read-only"),
-            "auto" | "workspace" => Some("auto"),
-            "full-access" | "fullaccess" | "danger" => Some("full-access"),
-            _ => None,
-        }
+        approval_preset_id_for_agent_mode(input)
     }
 
     pub(super) fn current_approval_preset_summary(&self) -> String {

@@ -3,7 +3,6 @@ use agent_client_protocol::schema::v1::{
 };
 use codex_protocol::approvals::{GuardianAssessmentAction, GuardianCommandSource};
 use codex_protocol::protocol::GuardianAssessmentEvent;
-use std::path::Path;
 
 pub(crate) fn guardian_assessment_tool_call_id(id: &str) -> String {
     format!("guardian_assessment:{id}")
@@ -155,9 +154,9 @@ pub(crate) fn format_file_system_special(
     }
 }
 
-pub(crate) fn format_file_system_subpath(base: &str, subpath: Option<&Path>) -> String {
+pub(crate) fn format_file_system_subpath(base: &str, subpath: Option<&str>) -> String {
     match subpath {
-        Some(subpath) => format!("{base}/{}", subpath.display()),
+        Some(subpath) => format!("{base}/{subpath}"),
         None => base.to_string(),
     }
 }

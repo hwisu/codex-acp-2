@@ -1,23 +1,21 @@
 use agent_client_protocol::schema::v1::{
     AvailableCommand, AvailableCommandsUpdate, ConfigOptionUpdate, ContentChunk, Meta, Plan,
-    PlanEntry, PlanEntryPriority, PlanEntryStatus, SessionConfigOption, SessionUpdate, UsageUpdate,
+    PlanEntry, PlanEntryPriority, PlanEntryStatus, SessionConfigOption, SessionInfoUpdate,
+    SessionUpdate, UsageUpdate,
 };
 use codex_protocol::{
     plan_tool::{PlanItemArg, StepStatus},
     protocol::{
-        ExitedReviewModeEvent, ReviewOutputEvent, ThreadGoalUpdatedEvent, ThreadRolledBackEvent,
-        TokenCountEvent, WarningEvent,
+        ExitedReviewModeEvent, ReviewOutputEvent, ThreadGoal, ThreadGoalStatus,
+        ThreadGoalUpdatedEvent, ThreadRolledBackEvent, TokenCountEvent, WarningEvent,
     },
     review_format::format_review_findings_block,
 };
 use serde_json::json;
 
-use crate::{
-    boundary::{
-        constants::meta,
-        effect::{BridgeEffect, IgnoredCodexEventReason},
-    },
-    display::format_thread_goal_update,
+use crate::boundary::{
+    constants::meta,
+    effect::{BridgeEffect, IgnoredCodexEventReason},
 };
 
 pub(crate) fn user_message(text: impl Into<String>) -> SessionUpdate {
@@ -136,7 +134,36 @@ pub(crate) fn review_mode_exit_effect(
 }
 
 pub(crate) fn thread_goal_updated(event: &ThreadGoalUpdatedEvent) -> BridgeEffect {
-    agent_text_effect(format_thread_goal_update(event))
+    thread_goal_effect(Some(&event.goal))
+}
+
+pub(crate) fn thread_goal_effect(goal: Option<&ThreadGoal>) -> BridgeEffect {
+    BridgeEffect::Forward(SessionUpdate::SessionInfoUpdate(
+        SessionInfoUpdate::new().meta(Meta::from_iter([(
+            meta::GOAL.to_string(),
+            goal.map_or(serde_json::Value::Null, thread_goal_snapshot),
+        )])),
+    ))
+}
+
+fn thread_goal_snapshot(goal: &ThreadGoal) -> serde_json::Value {
+    let status = match goal.status {
+        ThreadGoalStatus::Active => "active",
+        ThreadGoalStatus::Paused => "paused",
+        ThreadGoalStatus::Blocked => "blocked",
+        ThreadGoalStatus::UsageLimited | ThreadGoalStatus::BudgetLimited => "limited",
+        ThreadGoalStatus::Complete => "complete",
+    };
+    json!({
+        "objective": goal.objective.trim(),
+        "status": status,
+        "tokenBudget": goal.token_budget,
+        "tokensUsed": goal.tokens_used,
+        "timeUsedSeconds": goal.time_used_seconds,
+        "createdAt": goal.created_at.saturating_mul(1000),
+        "updatedAt": goal.updated_at.saturating_mul(1000),
+        "controlMethod": meta::GOAL_CONTROL_METHOD,
+    })
 }
 
 pub(crate) fn thread_rolled_back(
