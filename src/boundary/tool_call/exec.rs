@@ -257,7 +257,6 @@ pub(crate) fn exec_command_begin_plan(
         command: _,
         cwd,
         parsed_cmd,
-        process_id: _,
         ..
     } = event;
     let cwd_path = cwd.to_path_buf();

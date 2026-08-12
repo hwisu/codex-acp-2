@@ -334,8 +334,6 @@ pub(crate) fn request_permissions_interaction(
         turn_id: _,
         reason,
         permissions,
-        cwd: _,
-        started_at_ms: _,
         ..
     } = event;
 

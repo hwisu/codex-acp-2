@@ -37,7 +37,6 @@ pub(crate) fn dynamic_tool_call_end(event: DynamicToolCallResponseEvent) -> Tool
         content_items,
         success,
         error,
-        duration: _,
         ..
     } = event;
 

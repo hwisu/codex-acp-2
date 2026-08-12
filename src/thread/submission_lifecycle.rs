@@ -88,9 +88,6 @@ impl PromptState {
         TurnCompleteEvent {
             last_agent_message,
             turn_id,
-            completed_at: _,
-            duration_ms: _,
-            time_to_first_token_ms: _,
             ..
         }: TurnCompleteEvent,
     ) {
@@ -119,11 +116,7 @@ impl PromptState {
     pub(super) fn turn_aborted(
         &mut self,
         TurnAbortedEvent {
-            reason,
-            turn_id,
-            completed_at: _,
-            duration_ms: _,
-            ..
+            reason, turn_id, ..
         }: TurnAbortedEvent,
     ) {
         info!("Turn {turn_id:?} aborted: {reason:?}");

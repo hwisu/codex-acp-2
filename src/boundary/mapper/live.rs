@@ -109,10 +109,6 @@ pub(crate) fn route_live_event(event: EventMsg) -> LiveEventRoute {
             let McpToolCallBeginEvent {
                 call_id,
                 invocation,
-                mcp_app_resource_uri: _,
-                connector_id: _,
-                link_id: _,
-                plugin_id: _,
                 ..
             } = event;
             effect_route(tool_call::mcp_tool_call_begin_effect(call_id, &invocation))
