@@ -2460,9 +2460,15 @@ mod tests {
                 assert_eq!(env_vars[0].name(), "TOKEN");
                 assert_eq!(env_vars[1].name(), "REMOTE_TOKEN");
                 assert_eq!(env_vars[1].source(), Some("remote"));
+                let expected_cwd =
+                    AbsolutePathBuf::try_from(Path::new("/workspace").join("tools").join("mcp"))
+                        .expect("test MCP cwd should resolve absolutely")
+                        .as_path()
+                        .to_string_lossy()
+                        .into_owned();
                 assert_eq!(
                     cwd.as_ref().map(|path| path.as_str()),
-                    Some("/workspace/tools/mcp")
+                    Some(expected_cwd.as_str())
                 );
             }
             other => panic!("unexpected transport: {other:?}"),
