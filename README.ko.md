@@ -27,10 +27,12 @@ ACP 호환 클라이언트는 Codex TUI를 거치지 않고 Codex 세션을 실�
 - ACP Rust SDK: [`agent-client-protocol`](https://crates.io/crates/agent-client-protocol)
   ([`agentclientprotocol/rust-sdk`](https://github.com/agentclientprotocol/rust-sdk)) -
   `agent-client-protocol = 2.0.0` + `unstable`
-  (`agent-client-protocol-schema = 1.5.0`, lockfile 기준)
+  (`agent-client-protocol-schema = 1.5.0`, lockfile 기준). SDK가 schema를
+  `=1.5.0`으로 고정하므로 schema `1.6.0`(`ToolCallUpdate.name`, tool call/plan
+  entry의 `cancelled` status)은 SDK가 이를 반영한 릴리스를 낼 때까지 사용할 수 없습니다.
 - 공식 Codex ACP adapter 참조:
   [`agentclientprotocol/codex-acp`](https://github.com/agentclientprotocol/codex-acp),
-  npm `@agentclientprotocol/codex-acp = 1.2.0`
+  npm `@agentclientprotocol/codex-acp = 1.3.0`
 
 ## 기능
 
