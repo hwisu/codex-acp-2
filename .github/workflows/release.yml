@@ -23,7 +23,7 @@ jobs:
       tag_name: ${{ steps.get_version.outputs.tag_name }}
     steps:
       - name: Checkout codex-acp
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Get version from Cargo.toml
         id: get_version
@@ -70,7 +70,7 @@ jobs:
     runs-on: ${{ matrix.os }}
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -89,7 +89,7 @@ jobs:
           : > "${cargo_home}/config.toml"
 
       - name: Cache cargo registry
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.cargo/registry
           key: ${{ matrix.os }}-${{ matrix.target }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
@@ -97,7 +97,7 @@ jobs:
             ${{ matrix.os }}-${{ matrix.target }}-cargo-registry-
 
       - name: Cache cargo index
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.cargo/git
           key: ${{ matrix.os }}-${{ matrix.target }}-cargo-git-${{ hashFiles('**/Cargo.lock') }}
@@ -243,7 +243,7 @@ jobs:
           fi
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ${{ steps.create_archive.outputs.archive_name }}
           path: ${{ steps.create_archive.outputs.archive_path }}
@@ -257,16 +257,16 @@ jobs:
       packages: ${{ steps.create_packages.outputs.packages }}
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Setup Node.js
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@v7
         with:
           node-version: "lts/*"
           registry-url: "https://registry.npmjs.org"
 
       - name: Download all artifacts
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v8
         with:
           path: artifacts
           merge-multiple: true
@@ -281,14 +281,14 @@ jobs:
         run: bash npm/publish/update-base-package.sh ${{ needs.get-version.outputs.version }}
 
       - name: Upload NPM packages
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: npm-packages
           path: npm-packages/
           retention-days: 1
 
       - name: Upload base package
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: npm-base-package
           path: npm/
@@ -306,7 +306,7 @@ jobs:
 
     steps:
       - name: Setup Node.js
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@v7
         with:
           node-version: "lts/*"
           registry-url: "https://registry.npmjs.org"
@@ -314,7 +314,7 @@ jobs:
         run: npm install -g npm@latest
 
       - name: Download NPM packages
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v8
         with:
           name: npm-packages
           path: npm-packages
@@ -342,7 +342,7 @@ jobs:
 
     steps:
       - name: Setup Node.js
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@v7
         with:
           node-version: "lts/*"
           registry-url: "https://registry.npmjs.org"
@@ -350,7 +350,7 @@ jobs:
         run: npm install -g npm@latest
 
       - name: Download base package
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v8
         with:
           name: npm-base-package
           path: npm
@@ -371,10 +371,10 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Download all artifacts
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v8
         with:
           path: artifacts
 
@@ -383,7 +383,7 @@ jobs:
 
       - name: Create Release
         id: create_release
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ needs.get-version.outputs.tag_name }}
           name: Release ${{ needs.get-version.outputs.version }}

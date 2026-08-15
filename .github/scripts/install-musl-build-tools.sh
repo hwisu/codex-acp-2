@@ -32,8 +32,8 @@ case "${TARGET}" in
     ;;
 esac
 
-libcap_version="2.75"
-libcap_sha256="de4e7e064c9ba451d5234dd46e897d7c71c96a9ebf9a0c445bc04f4742d83632"
+libcap_version="2.78"
+libcap_sha256="0d621e562fd932ccf67b9660fb018e468a683d7b827541df27813228c996bb11"
 libcap_tarball_name="libcap-${libcap_version}.tar.xz"
 libcap_download_url="https://mirrors.edge.kernel.org/pub/linux/libs/security/linux-privs/libcap2/${libcap_tarball_name}"
 
