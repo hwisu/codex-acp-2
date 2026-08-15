@@ -28,10 +28,12 @@ This fork tracks upstream Codex releases under three rules:
 - ACP Rust SDK: [`agent-client-protocol`](https://crates.io/crates/agent-client-protocol)
   from [`agentclientprotocol/rust-sdk`](https://github.com/agentclientprotocol/rust-sdk) -
   `agent-client-protocol = 2.0.0` with `unstable`
-  (`agent-client-protocol-schema = 1.5.0` via lockfile)
+  (`agent-client-protocol-schema = 1.5.0` via lockfile). The SDK pins the schema
+  at `=1.5.0`, so schema `1.6.0` (`ToolCallUpdate.name`, `cancelled` tool call and
+  plan entry statuses) stays unavailable until the SDK ships a release that takes it.
 - Official Codex ACP adapter reference:
   [`agentclientprotocol/codex-acp`](https://github.com/agentclientprotocol/codex-acp),
-  npm `@agentclientprotocol/codex-acp = 1.2.0`
+  npm `@agentclientprotocol/codex-acp = 1.3.0`
 
 ## Features
 

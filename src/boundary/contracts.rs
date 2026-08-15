@@ -99,7 +99,7 @@ fn readmes_expose_current_acp_support_summary_at_the_top() {
 fn readmes_expose_upstream_acp_and_codex_versions() {
     let required = [
         "https://github.com/agentclientprotocol/codex-acp",
-        "@agentclientprotocol/codex-acp = 1.2.0",
+        "@agentclientprotocol/codex-acp = 1.3.0",
         "https://crates.io/crates/agent-client-protocol",
         "https://github.com/agentclientprotocol/rust-sdk",
         "agent-client-protocol = 2.0.0",
